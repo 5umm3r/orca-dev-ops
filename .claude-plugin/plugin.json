@@ -1,0 +1,48 @@
+{
+  "name": "orca-dev-ops",
+  "version": "1.0.0",
+  "description": "Orca を使った複数デバイス開発のマスターセッション手順。master が計画・レビュー・コミット・マージを担い、実装は子ワークツリーの Claude / Codex エージェントが行う分業を、スキル・ロール判定フック・PreToolUse ガード・リポジトリ初期化コマンドとして提供する。",
+  "author": {
+    "name": "5umm3r"
+  },
+  "license": "MIT",
+  "keywords": ["orca", "worktree", "workflow", "multi-device", "master-child", "hooks"],
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/orca-role-context.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|MultiEdit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/orca-role-guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/orca-child-control.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

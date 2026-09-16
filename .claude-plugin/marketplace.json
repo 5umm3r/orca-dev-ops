@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "orca-dev-ops",
+  "owner": {
+    "name": "5umm3r",
+    "url": "https://github.com/5umm3r"
+  },
+  "plugins": [
+    {
+      "name": "orca-dev-ops",
+      "source": "./",
+      "category": "workflow",
+      "description": "Orca マスター/子ワークツリー開発フローの手順・ガードフック・リポジトリ初期化コマンド一式。"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "orca-dev-ops",
+  "version": "1.0.0",
+  "description": "Orca-managed worktree workflow and coordination rules for Codex.",
+  "author": {
+    "name": "Orca"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Orca Dev Ops",
+    "shortDescription": "Coordinate Orca-managed development tasks.",
+    "longDescription": "Guides Codex through Orca worktree planning, task control, review, and delivery.",
+    "developerName": "Orca",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Coordinate an Orca-managed development task."
+    ]
+  }
+}

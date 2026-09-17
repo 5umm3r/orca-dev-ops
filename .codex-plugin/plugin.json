@@ -1,6 +1,6 @@
 {
   "name": "orca-dev-ops",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Orca-managed worktree workflow and coordination rules for Codex.",
   "author": {
     "name": "Orca"

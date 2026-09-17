@@ -1,6 +1,6 @@
 {
   "name": "orca-dev-ops",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Orca を使った複数デバイス開発のマスターセッション手順。master が計画・レビュー・コミット・マージを担い、実装は子ワークツリーの Claude / Codex エージェントが行う分業を、スキル・ロール判定フック・PreToolUse ガード・リポジトリ初期化コマンドとして提供する。",
   "author": {
     "name": "5umm3r"

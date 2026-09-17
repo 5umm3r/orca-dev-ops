@@ -12,7 +12,8 @@ Full rationale: `references/orca-operations-plan.md`. Read it only when a rule b
 | Step | Who | How |
 |---|---|---|
 | Plan with the user | master | Hearing, spec, file scope, acceptance tests |
-| Implement and test | child worktree | Agent started by `orca worktree create`, changes left uncommitted |
+| Choose model and effort | user | One AskUserQuestion after plan approval; the only pre-implementation question |
+| Implement and test | child worktree | Agent started with `orca worktree create` + `orca terminal create`, changes left uncommitted |
 | Control the child | master only | `orca terminal wait/read/send`, `orca orchestration check/reply`; never hand approval or follow-ups to the user |
 | Final review | master | `git -C <worktree> status/diff` against scope and spec |
 | Commit, rebase, merge, push | master | `git -C <worktree> commit`, rebase onto `origin/master`, `git merge --ff-only`, `git push origin master` |
@@ -50,24 +51,38 @@ commands - go outside the markers by hand.
 
 ## Task lifecycle
 
-1. Plan. Agree the spec with the user (use AskUserQuestion when the user asks for hearing). Decide the agent (`claude` or `codex`), the files the task may edit, acceptance tests, and verification commands. Run `orca worktree ps`; if an active task declares an overlapping file, or the repository's no-parallel-edit list is involved on both sides, do not start.
-2. Start the child with the full plan. Name `cc-<topic>` for Claude and `cx-<topic>` for Codex.
+1. Plan. Agree the spec with the user (use AskUserQuestion when the user asks for hearing). Decide the files the task may edit, acceptance tests, and verification commands. Run `orca worktree ps`; if an active task declares an overlapping file, or the repository's no-parallel-edit list is involved on both sides, do not start. The plan also recommends an agent+model and an effort grade - max (最高) / high (高) / normal (普通) / low (低) - each with a one-line reason. Check current models first with `claude --help` (aliases such as `opus` / `sonnet`) and `codex debug models`; do not rely on a remembered list.
+2. Choose model and effort. After the user explicitly approves the plan, call AskUserQuestion exactly once with two questions: (a) agent+model, e.g. "Claude Opus", "Claude Sonnet", "Codex <model>"; (b) effort grade. Put the recommended option first with a label ending in "(Recommended)"; the user may answer with Other. Never skip this question and never start the child before the answer. This is the one explicit exception to "never hand approval or follow-ups to the user".
+3. Start the child with the full plan, the chosen model, and the effort mapped below. Name `cc-<topic>` for Claude and `cx-<topic>` for Codex. `--agent` cannot pass CLI flags, so create the worktree and the agent terminal, wait until the agent is ready, then send the prompt:
    ```sh
-   orca worktree create --name cc-<topic> --base-branch origin/master --agent claude \
-     --comment "agent:claude scope:<files>" \
-     --prompt "<approved plan>. Allowed files: <files>. Acceptance: <tests>. Verification: <commands>. Follow the Orca worktree rules: implement now, leave changes uncommitted, report in four lines."
+   orca worktree create --name cc-<topic> --base-branch origin/master \
+     --comment "agent:claude model:<model> effort:<grade> scope:<files>" --json
+   orca terminal create --worktree name:cc-<topic> --title agent \
+     --command "claude --model <model> --effort <level>" --json
+   orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
+   orca terminal send --terminal <handle> --text "Read <absolute prompt-file path> and execute it." --enter --wait-submit 20
    ```
-   Write long prompts to the scratchpad and pass `--prompt "$(cat <file>)"`. Use `--setup skip` for documentation-only tasks that need no `node_modules`.
-3. Control. Find the terminal with `orca terminal list --worktree name:<name>`, run `orca terminal wait --terminal <handle> --for tui-idle` in the background, and read with `orca terminal read --terminal <handle> --screen | tail`. Answer questions and send follow-ups with `orca terminal send --terminal <handle> --text "..." --enter --wait-submit 20`. Ask the user only about decisions outside the approved plan. Never open a second agent session in the same task.
-4. Final review. On the four-line report (result / changed files / test results / open issues), check `git -C <worktree> status --short` and `git -C <worktree> diff` against the declared scope and spec. Send required fixes back to the child and repeat.
-5. Commit and ship from the master session.
+   Send only this single-line instruction; multi-line `--text` may submit early.
+   For Codex use `--command "codex -m <model> -c model_reasoning_effort=<level>"`. Write the prompt file to the scratchpad: "<approved plan>. Allowed files: <files>. Acceptance: <tests>. Verification: <commands>. Follow the Orca worktree rules: implement now, leave changes uncommitted, report in four lines." Use `--setup skip` on `orca worktree create` for documentation-only tasks that need no `node_modules`.
+
+   Effort mapping (the only part to update when the CLIs change):
+
+   | Grade | Claude `--effort` (low, medium, high, xhigh, max) | Codex `model_reasoning_effort` (low, medium, high, xhigh, max, ultra; model-dependent) |
+   |---|---|---|
+   | max (最高) | `max` | `max`; `xhigh` when the model lacks `max` (e.g. gpt-5.5) |
+   | high (高) | `high` | `high` |
+   | normal (普通) | `medium` | `medium` |
+   | low (低) | `low` | `low` |
+4. Control. Find the terminal with `orca terminal list --worktree name:<name>`, run `orca terminal wait --terminal <handle> --for tui-idle` in the background, and read with `orca terminal read --terminal <handle> --screen | tail`. Answer questions and send follow-ups with `orca terminal send --terminal <handle> --text "..." --enter --wait-submit 20`. Ask the user only about decisions outside the approved plan. Never open a second agent session in the same task.
+5. Final review. On the four-line report (result / changed files / test results / open issues), check `git -C <worktree> status --short` and `git -C <worktree> diff` against the declared scope and spec. Send required fixes back to the child and repeat.
+6. Commit and ship from the master session.
    ```sh
    git -C <worktree> add -A && git -C <worktree> commit -m "<conventional message>"
    git fetch origin && git -C <worktree> rebase origin/master   # if the base moved, have the child rerun the required tests
    git merge --ff-only <task-branch>                           # in the master checkout
    git push origin master
    ```
-6. Clean up: `orca orchestration worker-release --dispatch <id>` when the child was started as a supervised worker, then `orca worktree rm --worktree name:<name>`.
+7. Clean up: `orca orchestration worker-release --dispatch <id>` when the child was started as a supervised worker, then `orca worktree rm --worktree name:<name>`.
 
 ## Small changes
 

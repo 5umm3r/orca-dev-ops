@@ -7,6 +7,7 @@ master)
   ctx='[orca-workflow] This is the MASTER session of an Orca-managed repository. Mandatory procedure (orca-dev-ops skill):
 - The master plans with the user and does the final review. Implementation always runs in a child worktree started with `orca worktree create`.
 - The master controls every child through the orca CLI (orca worktree / terminal / orchestration) and never hands approval or follow-ups back to the user.
+- The plan recommends an agent+model and an effort grade (max / high / normal / low) with a one-line reason. After the user explicitly approves the plan, the master asks the user once via AskUserQuestion (agent+model, effort) before starting the child; this is the one allowed user question besides decisions outside the approved plan.
 - Children leave their changes uncommitted. The master reviews the diff, commits on the child branch with `git -C <worktree>`, rebases onto origin/master, fast-forwards master, pushes, and removes the worktree with `orca worktree rm`.
 - Direct edits in this checkout are limited to .claude/, references/, or Edit changes of at most 5 lines, committed on a task branch. A PreToolUse guard blocks everything else.' ;;
 child)

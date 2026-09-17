@@ -86,7 +86,14 @@ commands - go outside the markers by hand.
 
 ## Small changes
 
-Direct edits in the master checkout are allowed only under `.claude/`, `references/`, or as Edit changes of at most 5 lines, and only when no active task overlaps. Commit them on a task branch (`git switch -c <topic>`, commit, `git switch master`, `git merge --ff-only <topic>`, push, delete the branch). Everything else goes through a child worktree.
+Direct edits in the master checkout are allowed within these limits (the PreToolUse guard enforces them):
+
+- Documentation (`*.md` at any depth, `docs/`, `references/`, `.claude/`): any tool, any size.
+- Other files: Edit or MultiEdit only (no Write), at most 2 files and 20 changed lines of uncommitted non-documentation change in total, counting existing uncommitted and untracked files.
+
+Conditions: the change does not overlap an active child's declared scope, and the master runs the repository's required verification before committing. Commit on a task branch (`git switch -c <topic>`, commit, `git switch master`, `git merge --ff-only <topic>`, push, delete the branch), never directly on master. Anything beyond the limits goes through a child worktree.
+
+Every direct edit spends master context. When a change grows past the limits, stop and hand the rest to a child worktree instead of working around the guard.
 
 ## Exceptions
 

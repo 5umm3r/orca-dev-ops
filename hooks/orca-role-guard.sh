@@ -38,14 +38,31 @@ Edit|MultiEdit|Write|NotebookEdit)
   orca_under "$f" "$ORCA_WS" && deny "The master session does not edit child worktrees. Send instructions with orca terminal send."
   repo=$(orca_repo_of "$f")
   [ -z "$repo" ] && exit 0
-  case "${f#"$repo"/}" in .claude/*|references/*) exit 0 ;; esac
-  case "$tool" in
-  Edit|MultiEdit)
-    small=$(printf '%s' "$input" | jq '[(.tool_input.edits // [.tool_input]) | .[] | select(.replace_all != true) | [.old_string, .new_string] | map(split("\n") | length) | max] as $n | ($n | length) == ((.tool_input.edits // [.tool_input]) | length) and ($n | add) <= 5')
-    [ "$small" = true ] && exit 0
-    ;;
-  esac
-  deny "Implementation happens in a child worktree (orca worktree create). The master checkout allows direct edits only under .claude/ or references/, or Edit changes of at most 5 lines; commit those on a task branch, never on master."
+  rel=${f#"$repo"/}
+  # Documentation: any tool, any size.
+  case "$rel" in .claude/*|references/*|docs/*|*.md) exit 0 ;; esac
+  limit="Implementation happens in a child worktree (orca worktree create). The master checkout allows documentation (*.md, docs/, references/, .claude/) at any size; other files Edit only, at most 2 files and 20 changed lines uncommitted in total. Commit on a task branch, never on master; otherwise use a child worktree."
+  case "$tool" in Edit|MultiEdit) ;; *) deny "$limit" ;; esac
+  # Lines this edit changes; empty when any edit uses replace_all.
+  n=$(printf '%s' "$input" | jq '[(.tool_input.edits // [.tool_input]) | .[] | select(.replace_all != true) | [.old_string, .new_string] | map(. // "" | split("\n") | length) | max] as $n | if ($n | length) == ((.tool_input.edits // [.tool_input]) | length) then ($n | add // 0) else empty end')
+  [ -z "$n" ] && deny "$limit"
+  # Existing uncommitted changes (tracked and untracked) as "added<TAB>deleted<TAB>path"; skipped when git fails.
+  if existing=$(git -C "$repo" diff HEAD --numstat 2>/dev/null); then
+    untracked=$(git -C "$repo" ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r u; do
+      [ -f "$repo/$u" ] && printf '%s\t0\t%s\n' "$(wc -l < "$repo/$u" | tr -d ' ')" "$u"
+    done)
+  else
+    existing= untracked=
+  fi
+  # Non-doc files: per-file max(added, deleted), binary ("-") is over the limit.
+  fits=$(printf '%s\n%s\n%s\t0\t%s\n' "$existing" "$untracked" "$n" "$rel" | awk -F '\t' '
+    NF < 3 || $3 ~ /^(\.claude|references|docs)\// || $3 ~ /\.md$/ { next }
+    { c = ($1 == "-" || $2 == "-") ? 21 : ($1 + 0 > $2 + 0 ? $1 + 0 : $2 + 0)
+      if (!($3 in seen)) { seen[$3] = 1; files++ }
+      total += c }
+    END { print (files <= 2 && total <= 20) ? "yes" : "no" }')
+  [ "$fits" = yes ] && exit 0
+  deny "$limit"
   ;;
 esac
 exit 0

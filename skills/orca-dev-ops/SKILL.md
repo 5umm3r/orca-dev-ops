@@ -58,12 +58,15 @@ commands - go outside the markers by hand.
    orca worktree create --name cc-<topic> --base-branch origin/master \
      --comment "agent:claude model:<model> effort:<grade> scope:<files>" --json
    orca terminal create --worktree name:cc-<topic> --title agent \
-     --command "claude --model <model> --effort <level>" --json
+     --command "claude --dangerously-skip-permissions --model <model> --effort <level>" --json
    orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
    orca terminal send --terminal <handle> --text "Read <absolute prompt-file path> and execute it." --enter --wait-submit 20
    ```
    Send only this single-line instruction; multi-line `--text` may submit early.
-   For Codex use `--command "codex -m <model> -c model_reasoning_effort=<level>"`. Write the prompt file to the scratchpad: "<approved plan>. Allowed files: <files>. Acceptance: <tests>. Verification: <commands>. Follow the Orca worktree rules: implement now, leave changes uncommitted, report in four lines." Use `--setup skip` on `orca worktree create` for documentation-only tasks that need no `node_modules`.
+   **Required for every Claude Code child launch or restart:** explicitly pass `--dangerously-skip-permissions` (YOLO mode: bypass permission checks). Do not rely on the parent session's permissions or local config defaults, and do not use bare `--agent claude` for this workflow because it cannot pass this required flag. Preserve the chosen model and effort, and keep the Orca worktree rules and hooks in effect.
+   For Codex use `--command "codex --dangerously-bypass-approvals-and-sandbox -m <model> -c model_reasoning_effort=<level>"`.
+   **Required for every Codex child launch or restart:** explicitly pass `--dangerously-bypass-approvals-and-sandbox` (YOLO mode: no approval prompts, no sandbox). Do not rely on the parent session's permissions or local config defaults, and do not use bare `--agent codex` for this workflow because it cannot pass this required flag. Preserve the chosen model and effort, and continue to enforce the Orca worktree rules through the task prompt.
+   Write the prompt file to the scratchpad: "<approved plan>. Allowed files: <files>. Acceptance: <tests>. Verification: <commands>. Follow the Orca worktree rules: implement now, leave changes uncommitted, report in four lines." Use `--setup skip` on `orca worktree create` for documentation-only tasks that need no `node_modules`.
 
    Effort mapping (the only part to update when the CLIs change):
 

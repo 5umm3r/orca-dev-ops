@@ -1,22 +1,23 @@
 # orca-dev-ops
 
-Orca を使った複数デバイス開発のマスターセッション手順を、Claude Code プラグイン
-として配布するリポジトリ。Mac mini をハブとし、MacBook と Orca モバイルをクライアント、
-実装を Claude / Codex の子ワークツリーに委ねる分業を前提とする。
+Orca(Orca CLI) を使った複数デバイス開発のマスターセッション手順を、Claude Code プラグイン  
+として配布するリポジトリ。計画を親ワークツリー、実装を Claude / Codex の任意の子ワークツリーに委ねる分業を前提とする。
 
 ## 構成
 
-| パス | 役割 |
-|---|---|
-| `skills/orca-dev-ops/SKILL.md` | マスターセッションの手順本体 |
-| `skills/orca-dev-ops/references/orca-operations-plan.md` | 設計の根拠。ルールが不明瞭なときのみ読む |
-| `hooks/orca-role-context.sh` | SessionStart。master / child のどちらかをセッションへ通知 |
-| `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止 |
-| `hooks/orca-child-control.sh` | PostToolUse。`orca worktree create` 後に制御手順を注入 |
-| `hooks/orca-lib.sh` | ロール判定の共通関数 |
-| `commands/orca-init.md` | `/orca-init` スラッシュコマンド |
-| `scripts/orca-init.sh` | worktree rules 設置スクリプト |
-| `templates/worktree-rules.md` | 設置される汎用ルールブロック |
+
+| パス                                                       | 役割                                           |
+| -------------------------------------------------------- | -------------------------------------------- |
+| `skills/orca-dev-ops/SKILL.md`                           | マスターセッションの手順本体                               |
+| `skills/orca-dev-ops/references/orca-operations-plan.md` | 設計の根拠。ルールが不明瞭なときのみ読む                         |
+| `hooks/orca-role-context.sh`                             | SessionStart。master / child のどちらかをセッションへ通知   |
+| `hooks/orca-role-guard.sh`                               | PreToolUse。master の直接編集と child のコミットを禁止      |
+| `hooks/orca-child-control.sh`                            | PostToolUse。`orca worktree create` 後に制御手順を注入 |
+| `hooks/orca-lib.sh`                                      | ロール判定の共通関数                                   |
+| `commands/orca-init.md`                                  | `/orca-init` スラッシュコマンド                       |
+| `scripts/orca-init.sh`                                   | worktree rules 設置スクリプト                       |
+| `templates/worktree-rules.md`                            | 設置される汎用ルールブロック                               |
+
 
 フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
 `~/.claude/settings.json` への記述は不要。ロール判定キャッシュは
@@ -45,3 +46,4 @@ Orca を使った複数デバイス開発のマスターセッション手順を
 
 - `orca` CLI がパス上にあること
 - `jq` が利用可能であること
+

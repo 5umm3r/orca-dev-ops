@@ -1,0 +1,42 @@
+{
+  "id": "be1fc4d4-00ed-4da4-b0ec-52dcd42af007",
+  "ok": true,
+  "result": {
+    "repo": {
+      "id": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
+      "path": "/Users/dev/src/orca-dev-ops",
+      "displayName": "orca-dev-ops",
+      "badgeColor": "#737373",
+      "addedAt": 1789520016670,
+      "kind": "git",
+      "externalWorktreeVisibilityLegacy": false,
+      "gitUsername": "5umm3r",
+      "hookSettings": {
+        "mode": "auto",
+        "setupRunPolicy": "run-by-default",
+        "setupAgentStartupPolicy": "start-immediately",
+        "scripts": {
+          "setup": "npm ci",
+          "archive": ""
+        }
+      },
+      "repoIcon": {
+        "type": "image",
+        "src": "https://github.com/5umm3r.png?size=64",
+        "source": "github",
+        "label": "5umm3r/orca-dev-ops"
+      },
+      "upstream": null,
+      "gitRemoteIdentity": {
+        "canonicalKey": "github.com/5umm3r/orca-dev-ops",
+        "remoteName": "origin",
+        "remoteUrl": "git@github.com:5umm3r/orca-dev-ops.git"
+      },
+      "projectHostSetupMethod": "imported-existing-folder",
+      "externalWorktreeVisibility": "hide"
+    }
+  },
+  "_meta": {
+    "runtimeId": "1cf578dd-737d-4de9-a935-8f6e318b426d"
+  }
+}

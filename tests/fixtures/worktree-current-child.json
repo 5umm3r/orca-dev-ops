@@ -1,0 +1,80 @@
+{
+  "id": "6cfeb9f6-df6f-4a44-8cdc-94cab5534a5b",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "b63a7f48-68fb-453c-8641-9d0f3e6b853e::/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard",
+      "identity": {
+        "key": "wt2:local:987d34dd-40ed-4050-97fc-6f99e0a3d34c",
+        "executionHostId": "local",
+        "instanceId": "987d34dd-40ed-4050-97fc-6f99e0a3d34c"
+      },
+      "instanceId": "987d34dd-40ed-4050-97fc-6f99e0a3d34c",
+      "repoId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
+      "projectId": "github:5umm3r/orca-dev-ops",
+      "hostId": "local",
+      "projectHostSetupId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
+      "creatorProvenance": {
+        "kind": "host"
+      },
+      "path": "/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard",
+      "head": "6bc59544c5e97f28114594a8b3dc08f8d8106874",
+      "branch": "refs/heads/5umm3r/cc-role-guard",
+      "isBare": false,
+      "isMainWorktree": false,
+      "displayName": "cc-role-guard",
+      "displayNameMode": "fixed",
+      "comment": "agent:claude model:opus effort:high scope:hooks/orca-lib.sh,hooks/orca-role-guard.sh,hooks/orca-role-context.sh,scripts/orca-base-ref.sh,tests/",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedLinearIssueWorkspaceId": null,
+      "linkedLinearIssueOrganizationUrlKey": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "linkedBitbucketPR": null,
+      "linkedAzureDevOpsPR": null,
+      "linkedGiteaPR": null,
+      "linkedWorkItem": null,
+      "linkedTaskSourceContext": null,
+      "isArchived": false,
+      "isUnread": false,
+      "isPinned": false,
+      "sortOrder": 1790142784178,
+      "lastActivityAt": 1790142785060,
+      "createdAt": 1790142784178,
+      "cliProvenance": {
+        "kind": "created-by-cli",
+        "createdAt": 1790142781077,
+        "callerTerminalHandle": "term_d5a674fa-2df8-4a27-870d-bb9734c559b9"
+      },
+      "baseRef": "refs/remotes/origin/main",
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e::/Users/dev/src/orca-dev-ops",
+      "childWorktreeIds": [],
+      "lineage": {
+        "worktreeId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e::/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard",
+        "worktreeInstanceId": "987d34dd-40ed-4050-97fc-6f99e0a3d34c",
+        "parentWorktreeId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e::/Users/dev/src/orca-dev-ops",
+        "parentWorktreeInstanceId": "4ab49ec6-e72b-45c3-84af-b884824a12c7",
+        "origin": "cli",
+        "capture": {
+          "source": "env-workspace",
+          "confidence": "inferred"
+        },
+        "createdByTerminalHandle": "term_d5a674fa-2df8-4a27-870d-bb9734c559b9",
+        "createdAt": 1790142784178
+      },
+      "git": {
+        "path": "/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard",
+        "head": "6bc59544c5e97f28114594a8b3dc08f8d8106874",
+        "branch": "refs/heads/5umm3r/cc-role-guard",
+        "isBare": false,
+        "isMainWorktree": false
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "1cf578dd-737d-4de9-a935-8f6e318b426d"
+  }
+}

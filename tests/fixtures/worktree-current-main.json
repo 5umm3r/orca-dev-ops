@@ -1,0 +1,60 @@
+{
+  "id": "f6121298-5a0d-407e-ad27-cab8ee205b3b",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "b63a7f48-68fb-453c-8641-9d0f3e6b853e::/Users/dev/src/orca-dev-ops",
+      "identity": {
+        "key": "wt2:local:4ab49ec6-e72b-45c3-84af-b884824a12c7",
+        "executionHostId": "local",
+        "instanceId": "4ab49ec6-e72b-45c3-84af-b884824a12c7"
+      },
+      "instanceId": "4ab49ec6-e72b-45c3-84af-b884824a12c7",
+      "repoId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
+      "projectId": "github:5umm3r/orca-dev-ops",
+      "hostId": "local",
+      "projectHostSetupId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
+      "path": "/Users/dev/src/orca-dev-ops",
+      "head": "6bc59544c5e97f28114594a8b3dc08f8d8106874",
+      "branch": "refs/heads/main",
+      "isBare": false,
+      "isMainWorktree": true,
+      "displayName": "main",
+      "displayNameMode": "automatic",
+      "comment": "",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedLinearIssueWorkspaceId": null,
+      "linkedLinearIssueOrganizationUrlKey": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "linkedBitbucketPR": null,
+      "linkedAzureDevOpsPR": null,
+      "linkedGiteaPR": null,
+      "linkedWorkItem": null,
+      "linkedTaskSourceContext": null,
+      "isArchived": false,
+      "isUnread": true,
+      "isPinned": false,
+      "sortOrder": 1790121916029,
+      "lastActivityAt": 1790142854172,
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": null,
+      "childWorktreeIds": [
+        "b63a7f48-68fb-453c-8641-9d0f3e6b853e::/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard"
+      ],
+      "lineage": null,
+      "git": {
+        "path": "/Users/dev/src/orca-dev-ops",
+        "head": "6bc59544c5e97f28114594a8b3dc08f8d8106874",
+        "branch": "refs/heads/main",
+        "isBare": false,
+        "isMainWorktree": true
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "1cf578dd-737d-4de9-a935-8f6e318b426d"
+  }
+}

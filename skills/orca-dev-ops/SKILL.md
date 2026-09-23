@@ -21,7 +21,7 @@ Full rationale: `references/orca-operations-plan.md`. Read it only when a rule b
 
 The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude sessions:
 - `orca-role-context.sh` (SessionStart) tells each session whether it is master or child.
-- `orca-role-guard.sh` (PreToolUse) blocks, in the master checkout, Write/Edit outside `.claude/`, `references/`, or Edit changes of at most 5 lines; edits to child worktrees; raw `git worktree add/remove`. In child sessions it blocks `git commit/push/merge/rebase/cherry-pick/am/revert`, `orca worktree create/rm`, and edits outside the own worktree.
+- `orca-role-guard.sh` (PreToolUse) blocks, in the master checkout, Write/Edit outside documentation (`*.md`, `docs/`, `references/`, `.claude/`, any size) unless the change is Edit/MultiEdit to at most 2 files and 20 changed lines total; edits to child worktrees; raw `git worktree add/remove`. In child sessions it blocks `git commit/push/merge/rebase/cherry-pick/am/revert`, `orca worktree create/rm`, and edits outside the own worktree.
 - `orca-child-control.sh` (PostToolUse) injects the control procedure after every `orca worktree create`.
 Codex children are not covered by Claude hooks; the repository's AGENTS.md rules and the task prompt must state the same limits.
 
@@ -66,7 +66,7 @@ commands - go outside the markers by hand.
    **Required for every Claude Code child launch or restart:** explicitly pass `--dangerously-skip-permissions` (YOLO mode: bypass permission checks). Do not rely on the parent session's permissions or local config defaults, and do not use bare `--agent claude` for this workflow because it cannot pass this required flag. Preserve the chosen model and effort, and keep the Orca worktree rules and hooks in effect.
    For Codex use `--command "codex --dangerously-bypass-approvals-and-sandbox -m <model> -c model_reasoning_effort=<level>"`.
    **Required for every Codex child launch or restart:** explicitly pass `--dangerously-bypass-approvals-and-sandbox` (YOLO mode: no approval prompts, no sandbox). Do not rely on the parent session's permissions or local config defaults, and do not use bare `--agent codex` for this workflow because it cannot pass this required flag. Preserve the chosen model and effort, and continue to enforce the Orca worktree rules through the task prompt.
-   Write the prompt file to the scratchpad: "<approved plan>. Allowed files: <files>. Acceptance: <tests>. Verification: <commands>. Follow the Orca worktree rules: implement now, leave changes uncommitted, report in four lines." Use `--setup skip` on `orca worktree create` for documentation-only tasks that need no `node_modules`.
+   Write the prompt file to the scratchpad: "<approved plan>. Allowed files: <files>. Acceptance: <tests>. Verification: <commands>. Follow the Orca worktree rules: implement now, leave changes uncommitted. When a step does not need the master's input, keep going; stop and ask through `orca orchestration ask` only when you cannot continue without the master, or before anything destructive (deleting files outside this worktree, `git reset --hard`/`git clean -fd`, large dependency changes, database or external-service operations). For multi-step tasks, keep a checklist in `TASKS.md` at the worktree root (add `TASKS.md` to `.git/info/exclude` first), ticking items as done. Report in five lines: result / changed files / verification (commands run + last lines of output) / blocked on master / found." Use `--setup skip` on `orca worktree create` for documentation-only tasks that need no `node_modules`.
 
    Effort mapping (the only part to update when the CLIs change):
 
@@ -76,12 +76,12 @@ commands - go outside the markers by hand.
    | high (高) | `high` | `high` |
    | normal (普通) | `medium` | `medium` |
    | low (低) | `low` | `low` |
-4. Control. Find the terminal with `orca terminal list --worktree name:<name>`, run `orca terminal wait --terminal <handle> --for tui-idle` in the background, and read with `orca terminal read --terminal <handle> --screen | tail`. Answer questions and send follow-ups with `orca terminal send --terminal <handle> --text "..." --enter --wait-submit 20`. Ask the user only about decisions outside the approved plan. Never open a second agent session in the same task.
-5. Final review. On the four-line report (result / changed files / test results / open issues), check `git -C <worktree> status --short` and `git -C <worktree> diff` against the declared scope and spec. Send required fixes back to the child and repeat.
+4. Control. Find the terminal with `orca terminal list --worktree name:<name>`, run `orca terminal wait --terminal <handle> --for tui-idle` in the background, and read with `orca terminal read --terminal <handle> --screen | tail`. Answer questions and send follow-ups with `orca terminal send --terminal <handle> --text "..." --enter --wait-submit 20`. Send spec additions mid-run the same way instead of restarting the child. Ask the user only about decisions outside the approved plan. Never open a second agent session in the same task.
+5. Final review. On the five-line report (result / changed files / verification: commands run + last lines of output / blocked on master / found), check the verification line first; if it has no evidence, send it back. Then check `git -C <worktree> status --short` and `git -C <worktree> diff` against the declared scope and spec. List only problems that would block the merge, each with file:line, why it is wrong, and how to show it fails. For large diffs, delegate the diff read to a reviewer subagent to save master context. Send required fixes back to the child and repeat. After a rebase that moved the base, have the child rerun verification.
 6. Commit and ship from the master session.
    ```sh
    git -C <worktree> add -A && git -C <worktree> commit -m "<conventional message>"
-   git fetch origin && git -C <worktree> rebase origin/master   # if the base moved, have the child rerun the required tests
+   git fetch origin && git -C <worktree> rebase origin/master   # if the base moved, have the child rerun verification
    git merge --ff-only <task-branch>                           # in the master checkout
    git push origin master
    ```
@@ -108,3 +108,4 @@ Every direct edit spends master context. When a change grows past the limits, st
 - Keep master conversations short: plan, start, control, review, ship, clean up.
 - Task prompts carry the full plan, target files, acceptance, and verification commands so the child does not explore or re-plan.
 - Verification follows the repository's verification ladder; the full suite only where the repository requires it or before merge when requested.
+- Once a question is answered, treat the answer as settled; do not revisit it.

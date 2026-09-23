@@ -120,6 +120,10 @@ For Codex, use `--command "codex -a never -s workspace-write --add-dir
 `git -C <worktree> rev-parse --absolute-git-dir` (the per-worktree
 `.git/worktrees/<name>`, not the common `.git`).
 
+- First launch in a repository the agent has not trusted blocks at stage
+  `agent_readiness`, and Codex may separately show an update prompt; never
+  accept either on the coordinator's own initiative (see "Known
+  constraints").
 - Never change approval policy, sandbox, network, extra writable dirs, or hook
   enablement to shorten a launch command; the flags above are required for
   every launch or restart of that agent, not optional defaults.
@@ -136,7 +140,9 @@ For Codex, use `--command "codex -a never -s workspace-write --add-dir
   `worker-start` reports `launch.effective` as null, so confirm from the
   child's screen header instead (Claude: the model line; Codex: the status
   line shows model, approval, and sandbox), or report the value as
-  unconfirmed if the screen does not show it. Have the child's first `status`
+  unconfirmed if the screen does not show it — including when the screen
+  shows a value that does not change with the requested effort (see "Known
+  constraints"). Have the child's first `status`
   message confirm it read the repository's Orca worktree rules; for Claude
   children also confirm the guard is active (e.g. the child runs
   `git commit --dry-run -m probe` and reports that the guard denied it).
@@ -162,11 +168,16 @@ and Codex children cannot write the common `.git` from the sandbox.
 ## Communication and state
 
 - Keep Task, Dispatch, worktree, and terminal IDs separate in the plan/notes.
+  A coordinator terminal is bound to one Run at a time; reuse `run-current`
+  rather than calling `run-create` again (see "Known constraints").
 - Orchestration messages first; `orca terminal read/send` for supplementary
   input and recovery. Sending text to a terminal is not acceptance: confirm by
   the child's screen or its next message.
 - `heartbeat` is liveness only (`worker-show` `lastHeartbeatAt`), never
-  progress; progress comes in `status` messages.
+  progress; progress comes in `status` messages. A child sometimes sends a
+  heartbeat or repeats an earlier question instead of the first `status`;
+  answer duplicates consistently and ask again for the status if it never
+  arrives (see "Known constraints").
 - A Delivery may hold several messages (e.g. `status` + `worker_done` arrived
   in one batch). Handle every message, then `--ack` that deliveryId. On
   timeout `deliveryId` is null: do not ack a made-up or previous id.
@@ -183,13 +194,15 @@ and Codex children cannot write the common `.git` from the sandbox.
     `check --wait` with a timeout below its tool-call limit, repeated while
     the turn lasts; when the turn must end, say that supervision pauses and
     how to resume (`orca orchestration check --run <id>` on the next turn).
-  - Orca may inject "You have N orchestration message(s)..." into the
-    coordinator terminal, which can wake an idle session; treat it as an
-    observed, unverified aid, not the primary monitoring mechanism.
+  - Orca injects "You have N orchestration message(s)..." into the
+    coordinator terminal for `status` and `heartbeat` alike (see "Known
+    constraints"), which can wake an idle session; treat it as an aid, not
+    the primary monitoring mechanism.
   - Do not assume backgrounding a shell command re-invokes any agent.
   - On timeout: check `worker-show` (state, `observation.agentWait`,
     `lastHeartbeatAt`) and the child's screen; `TASKS.md` is a checklist, not
-    a liveness or completion signal.
+    a liveness or completion signal. `orca terminal wait --for tui-idle` is
+    not a substitute for this with Codex (see "Known constraints").
 
 Send spec additions and mid-run corrections with `orca terminal send`; do not
 recreate the worktree or restart the agent for a course correction. Ask the
@@ -201,21 +214,26 @@ agent session in the same task.
 - A child's success report is not review, and review is not integration.
 - Check: the requested verification output; scope and spec fit;
   `git -C <wt> status --porcelain=v1 --untracked-files=all` (staged, unstaged,
-  untracked); no unrelated files. Stage explicit reviewed paths; never a
-  blanket `git add -A`. After a rebase that changed the tested content, rerun
-  the required verification through a new Dispatch.
+  untracked); no unrelated files; for a Codex worktree,
+  `orca terminal list --worktree <child>` for terminals the coordinator did
+  not create (see "Known constraints"). Stage explicit reviewed paths; never
+  a blanket `git add -A`. After a rebase that changed the tested content,
+  rerun the required verification through a new Dispatch.
 - Children keep changes uncommitted; the coordinator commits and integrates.
 - `worker-release` and worktree removal are separate steps. Check the
   outcome, terminal ownership, and other live Dispatches in that worktree
   first. Treat `retained`, `release_pending`, `release_unknown` per Orca's
-  meaning; never force-close a dispatch because something stayed open.
+  meaning (see "Known constraints" for the two `retained` reasons observed
+  live); never force-close a dispatch because something stayed open.
 - Remove a worktree only when: no live worker or writes remain; review,
   verification, and integration are done; no unsaved or unintegrated work
   would be lost; the user did not ask to keep it; the repo/worktree/branch to
   remove is confirmed. On failure, abort, or push failure: keep the work,
   report state and how to resume; discarding needs explicit approval. Never
   use `--force`, `rm -rf`, broad terminal closes, or `orca orchestration
-  reset` as routine cleanup.
+  reset` as routine cleanup. `orca worktree rm` refuses on its own while
+  untracked files remain; delete only the reviewed test files first, with
+  approval (see "Known constraints").
 
 ## Small changes
 
@@ -239,3 +257,50 @@ Every direct edit spends master context. When a change grows past the limits, st
 - Task prompts carry the full plan, target files, done-when conditions, and verification commands so the child does not explore or re-plan.
 - Verification follows the repository's verification ladder; the full suite only where the repository requires it or before merge when requested.
 - Once a question is answered, treat the answer as settled; do not revisit it.
+
+## Known constraints (verified 2026-09-23, Orca 1.4.206, codex-cli 0.156.0, Claude Code 2.1.280)
+
+Confirmed by live tests in both directions (Claude coordinator with a Codex
+child, and Codex coordinator with a Claude child), each completing start ->
+status -> ask/reply -> worker_done -> a review-fix Dispatch -> review ->
+release -> worktree removal.
+
+- A repository under `/tmp` or `$TMPDIR` is writable from any Codex sandbox
+  even with `-s workspace-write`, which otherwise blocks writes to `$HOME`
+  and the main checkout. Never place a repository or worktree there.
+- The Orca CLI is reachable from inside the Codex sandbox, and terminals
+  created through Orca run outside it. A Codex coordinator whose sandbox
+  makes the common `.git` read-only can use a worktree-scoped Orca terminal
+  to commit or delete files — deliberate work outside its own sandbox, and
+  it must say so. A Codex child could do the same; only the `AGENTS.md`
+  rules stop it (a Claude child is stopped by the guard).
+- First launch in a repository the agent has not trusted shows a trust
+  prompt (both Codex and Claude); Orca reports
+  `blockedReason: agent-trust-workspace` and `worker-start` fails at stage
+  `agent_readiness`. The coordinator never accepts trust on its own — it is
+  a global setting the user grants once. On codex-cli 0.156.0, a session-level
+  `-c projects."<path>".trust_level` override did not take effect.
+- Codex may show an update prompt at launch; dismiss it with Esc, never
+  "Update now" (a global install change).
+- `orca terminal wait --for tui-idle` can report idle while Codex is still
+  working; do not use it alone to decide a Codex session stopped.
+- With `--terminal` binding, the Claude screen's effort indicator showed
+  `[medium]` for both `--effort low` and `--effort high`; treat effort as
+  unconfirmed from the screen alone unless another source shows it.
+- Orca's "You have N orchestration message(s)..." terminal injection fires
+  for `status` and `heartbeat` alike, so it wakes the coordinator on noise,
+  not only on real progress.
+- Children sometimes send a heartbeat or repeat an earlier question instead
+  of the first `status` message; answer duplicates consistently, and ask
+  again for the status if it never arrives.
+- `orca worktree rm` refuses while untracked files remain (never `--force`;
+  delete only the reviewed test files first, with approval). It deletes a
+  task branch with no commits of its own but keeps one with commits.
+  `worker-release` returns `retained/external_terminal` for a
+  `--terminal`-bound dispatch and `retained/no_owned_resource` for one that
+  failed before start.
+- A coordinator terminal is bound to one Run at a time: `run-create` rebinds
+  it, and `task-create`/`worker-start` on the previous Run then fail with
+  `consumer_fenced`. Use one Run per coordinator session (reuse
+  `run-current`); start a new Run only when no Dispatch of the current Run
+  is still live.

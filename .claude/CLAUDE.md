@@ -29,6 +29,10 @@ coordinator session follows the `orca-dev-ops` skill instead.
   without an open `ask` or a sent `worker_done`.
 - `TASKS.md` is an optional checklist at the worktree root, never committed,
   never a status channel.
+- Codex only: never run `orca terminal` or `orca worktree` commands, and
+  never create a process meant to run outside the sandbox. Terminals created
+  through Orca run outside the sandbox, so this would be a way around it,
+  not a shortcut.
 - When the coordinator sends a follow-up mid-run, stop at a clean point,
   then apply it. Run the verification this repository requires before
   reporting done. Do not edit a file another active task worktree has

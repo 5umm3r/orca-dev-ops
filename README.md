@@ -20,8 +20,7 @@ Orca(Orca CLI) を使った複数デバイス開発のマスターセッショ�
 
 
 フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
-`~/.claude/settings.json` への記述は不要。ロール判定キャッシュは
-`${XDG_CACHE_HOME:-~/.cache}/orca-dev-ops/repos` に置かれる。
+`~/.claude/settings.json` への記述は不要。
 
 ## インストール
 
@@ -47,3 +46,17 @@ Orca(Orca CLI) を使った複数デバイス開発のマスターセッショ�
 - `orca` CLI がパス上にあること
 - `jq` が利用可能であること
 
+## v2.0.0 への移行
+
+- プラグインを更新したら、ガード対象にしたい各リポジトリで `/orca-init` を
+  実行し直す。スコープの判定は「`.claude/CLAUDE.md` または `AGENTS.md` に
+  マーカーブロックがあるか」のみになった。マーカーが無いリポジトリはもう
+  制限を受けない。逆にスコープ内でロールが判定できない場合、以前は無制限に
+  動いていたが、今は書き込み系の操作をブロックする（fail closed）。
+- 統合先（integration ref）は `scripts/orca-base-ref.sh` が返す値（Orca の
+  base ref、無ければリモートの HEAD）を使う。判定できない場合は
+  `orca repo set-base-ref` で設定する。
+- 子は `orca orchestration worker-start --terminal` によるディスパッチワーカー
+  として起動する。レビュー指摘の修正は新しい Dispatch として渡す。
+- Codex の子エージェントには Claude の hooks が適用されない。サンドボックス
+  フラグと `AGENTS.md` のルールが唯一のガードになる。

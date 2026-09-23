@@ -1,16 +1,16 @@
 {
   "name": "orca-dev-ops",
-  "version": "1.6.0",
-  "description": "Orca-managed worktree workflow and coordination rules for Codex.",
+  "version": "2.0.0",
+  "description": "Orca-managed worktree workflow and coordination rules for Codex, provided as a skill only (no hooks; use the Codex sandbox flags and the repository's AGENTS.md for guardrails).",
   "author": {
-    "name": "Orca"
+    "name": "5umm3r"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Orca Dev Ops",
     "shortDescription": "Coordinate Orca-managed development tasks.",
-    "longDescription": "Guides Codex through Orca worktree planning, task control, review, and delivery.",
-    "developerName": "Orca",
+    "longDescription": "Guides Codex through Orca worktree planning, task control, review, and delivery. Ships as a skill only; unlike the Claude Code plugin, it has no hooks or slash command, so the sandbox flags and the repository's AGENTS.md rules are the only guardrails.",
+    "developerName": "5umm3r",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Write"],
     "defaultPrompt": [

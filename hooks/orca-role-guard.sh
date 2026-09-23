@@ -126,7 +126,7 @@ Edit|MultiEdit|Write|NotebookEdit)
   rel=${f#"$repo"/}
   # Documentation: any tool, any size.
   case "$rel" in .claude/*|references/*|docs/*|*.md) exit 0 ;; esac
-  limit="Implementation happens in a child worktree (orca worktree create). The master checkout allows documentation (*.md, docs/, references/, .claude/) at any size; other files Edit only, at most 2 files and 20 changed lines uncommitted in total. Commit on a task branch, never on master; otherwise use a child worktree."
+  limit="Implementation happens in a child worktree (orca worktree create). The master checkout allows documentation (*.md, docs/, references/, .claude/) at any size; other files Edit only, at most 2 files and 20 changed lines uncommitted in total. Documentation-only commits go directly on master and push; a commit with any non-documentation file goes on a task branch, never directly on master."
   case "$tool" in Edit|MultiEdit) ;; *) deny "$limit" ;; esac
   # Lines this edit changes; empty when any edit uses replace_all.
   n=$(printf '%s' "$input" | jq '[(.tool_input.edits // [.tool_input]) | .[] | select(.replace_all != true) | [.old_string, .new_string] | map(. // "" | split("\n") | length) | max] as $n | if ($n | length) == ((.tool_input.edits // [.tool_input]) | length) then ($n | add // 0) else empty end')

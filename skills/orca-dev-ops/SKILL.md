@@ -39,7 +39,7 @@ commands - go outside the markers by hand.
 ## Invariants
 
 - The Mac mini is the only place that holds checkouts, worktrees, agents, and dev servers. MacBook and phone only connect to it.
-- `origin/master` is the source of truth. Never commit on the `master` branch; a local pre-commit / pre-merge-commit hook enforces this. `master` only advances by fast-forward.
+- `origin/master` is the source of truth. `master` takes direct commits only when they are documentation-only; otherwise it only advances by fast-forward from task branches. A local pre-commit hook allows documentation-only commits on `master` and rejects any other, and pre-merge-commit rejects merge commits.
 - The only permanent worktree is `master`. Never create device-named worktrees (`macbook`, `device-a`). `sandbox` is allowed but is reset to `origin/master` before each use and never merged.
 - One task = one worktree = one branch, created from `origin/master`, always through the orca CLI.
 - The master session does not implement or read full agent logs.
@@ -95,7 +95,7 @@ Direct edits in the master checkout are allowed within these limits (the PreTool
 - Documentation (`*.md` at any depth, `docs/`, `references/`, `.claude/`): any tool, any size.
 - Other files: Edit or MultiEdit only (no Write), at most 2 files and 20 changed lines of uncommitted non-documentation change in total, counting existing uncommitted and untracked files.
 
-Conditions: the change does not overlap an active child's declared scope, and the master runs the repository's required verification before committing. Commit on a task branch (`git switch -c <topic>`, commit, `git switch master`, `git merge --ff-only <topic>`, push, delete the branch), never directly on master. Anything beyond the limits goes through a child worktree.
+Conditions: the change does not overlap an active child's declared scope, and the master runs the repository's required verification before committing. Documentation-only change: commit directly on master and push. Change with any non-documentation file: task branch (`git switch -c <topic>`, commit, `git switch master`, `git merge --ff-only <topic>`, push, delete the branch). Anything beyond the limits goes through a child worktree.
 
 Every direct edit spends master context. When a change grows past the limits, stop and hand the rest to a child worktree instead of working around the guard.
 

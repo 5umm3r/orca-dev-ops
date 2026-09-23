@@ -62,4 +62,57 @@ reset
 check "master Edit under workspaces" deny "$(edit "$HOME/orca/workspaces/proj/task/src/a.sh" 1)"
 check "child Bash git commit" deny "$(jq -n --arg cwd "$HOME/orca/workspaces/proj/task" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:"git commit -m x"}}')"
 
+# Child Bash: destructive and external operations. The own-worktree check needs a git repo.
+child="$HOME/orca/workspaces/proj/task"
+git -C "$child" init -q || exit 1
+run() { jq -n --arg cwd "${2:-$child}" --arg c "$1" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:$c}}'; }
+
+check "child rm -rf node_modules dist" allow "$(run 'rm -rf node_modules dist')"
+check "child rm -rf <own>/dist" allow "$(run "rm -rf $child/dist")"
+check "child rm -rf \$HOME path inside own" allow "$(run 'rm -rf "$HOME/orca/workspaces/proj/task/dist"')"
+check "child rm -rf /tmp/x" deny "$(run 'rm -rf /tmp/x')"
+check "child rm -r ~/x" deny "$(run 'rm -r ~/x')"
+check "child rm --recursive --force \$HOME/orca" deny "$(run 'rm --recursive --force $HOME/orca')"
+check "child rm -fr ../other" deny "$(run 'rm -fr ../other')"
+check "child rm -rf <own> root" deny "$(run "rm -rf $child")"
+check "child npm test && rm -rf /" deny "$(run 'npm test && rm -rf /')"
+
+check "child git status" allow "$(run 'git status')"
+check "child git diff" allow "$(run 'git diff')"
+check "child git branch -a" allow "$(run 'git branch -a')"
+check "child git clean -n" allow "$(run 'git clean -n')"
+check "child git reset --hard" deny "$(run 'git reset --hard')"
+check "child git reset HEAD~1 --hard" deny "$(run 'git reset HEAD~1 --hard')"
+check "child git clean -fd" deny "$(run 'git clean -fd')"
+check "child git branch -D x" deny "$(run 'git branch -D x')"
+check "child git branch -d x" deny "$(run 'git branch -d x')"
+check "child git branch --delete x" deny "$(run 'git branch --delete x')"
+check "child git stash drop" deny "$(run 'git stash drop')"
+check "child git stash clear" deny "$(run 'git stash clear')"
+check "child git update-ref" deny "$(run 'git update-ref -d refs/heads/x')"
+
+check "child git -C <own> status" allow "$(run "git -C $child status")"
+check "child git -C <own> add" allow "$(run "git -C $child add -A")"
+check "child git -C <other> log" allow "$(run "git -C $repo log")"
+check "child git -C <other> checkout" deny "$(run "git -C $repo checkout -b x")"
+check "child git -C ../other add" deny "$(run 'git -C ../other add -A')"
+
+check "child npm test" allow "$(run 'npm test')"
+check "child npm publish" deny "$(run 'npm publish')"
+check "child pnpm publish" deny "$(run 'pnpm publish --no-git-checks')"
+check "child yarn publish" deny "$(run 'yarn publish')"
+check "child gh pr merge" deny "$(run 'gh pr merge 1 --squash')"
+check "child gh pr view" allow "$(run 'gh pr view 1')"
+check "child gh repo delete" deny "$(run 'gh repo delete x --yes')"
+check "child gh release create" deny "$(run 'gh release create v1')"
+check "child gh release upload" deny "$(run 'gh release upload v1 a.zip')"
+check "child supabase db reset" deny "$(run 'supabase db reset')"
+check "child npx supabase db push" deny "$(run 'npx supabase db push')"
+check "child wrangler deploy" deny "$(run 'npx wrangler deploy')"
+check "child wrangler delete" deny "$(run 'wrangler delete')"
+check "child firebase deploy" deny "$(run 'firebase deploy --only hosting')"
+
+check "master git reset --hard" allow "$(run 'git reset --hard' "$repo")"
+check "master rm -rf /tmp/x" allow "$(run 'rm -rf /tmp/x' "$repo")"
+
 exit "$fail"

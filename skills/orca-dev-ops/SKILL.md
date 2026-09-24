@@ -214,8 +214,12 @@ workflow's choices and what live tests showed.
     a liveness or completion signal. `orca terminal wait --for tui-idle` is
     not a substitute for this with Codex (see "Known constraints").
 
-Send spec additions and mid-run corrections with `orca terminal send`; do not
-recreate the worktree or restart the agent for a course correction. Ask the
+Send spec additions and mid-run corrections with `orca orchestration send
+--to dispatch:<dispatch_id>`; the child picks them up with `check` at its next
+checkpoint (the enqueue does not interrupt it). Fall back to `orca terminal
+send` only when the child's messages and screen show it has not picked the
+follow-up up and is not checking. Do not recreate the worktree or restart the
+agent for a course correction. Ask the
 user only about decisions outside the approved plan. Never open a second
 agent session in the same task.
 

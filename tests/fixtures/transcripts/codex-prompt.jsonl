@@ -1,0 +1,6 @@
+{"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000002","cwd":"/synthetic/repo","originator":"codex_cli_rs","cli_version":"0.0.0"}}
+{"timestamp":"2026-01-01T00:00:00.001Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /synthetic/repo\n\nsynthetic rules"},{"type":"input_text","text":"<environment_context>\n  <cwd>/synthetic/repo</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-01-01T00:00:00.002Z","type":"turn_context","payload":{"cwd":"/synthetic/repo","model":"synthetic"}}
+{"timestamp":"2026-01-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Plan and implement the synthetic feature."}]}}
+{"timestamp":"2026-01-01T00:00:01.001Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t-1","turn_id":"turn-1","item":{"type":"UserMessage","id":"um-1","content":[{"type":"text","text":"Plan and implement the synthetic feature.","text_elements":[]}]}}}
+{"timestamp":"2026-01-01T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is the plan."}]}}

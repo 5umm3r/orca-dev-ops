@@ -1,0 +1,3 @@
+{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"call_exec","input":"text(await tools.exec_command({cmd:\"orca terminal create --worktree name:cx-task --command \\\"codex -m sol\\\" --json\"}))"}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"exec-0","command":["/bin/zsh","-lc","orca terminal create --worktree name:cx-task --command \"codex -m sol\" --json"],"cwd":"/synthetic/repo","status":"completed","exit_code":0,"aggregated_output":"synthetic"}}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_exec","output":"Script completed"}}

@@ -1,0 +1,2 @@
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"codex, sol, low"}]}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"um-2","content":[{"type":"text","text":"codex, sol, low","text_elements":[]}]}}}

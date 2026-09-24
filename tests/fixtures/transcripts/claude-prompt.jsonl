@@ -1,0 +1,4 @@
+{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","message":{"role":"user","content":"Plan and implement the synthetic feature."},"uuid":"u-1","parentUuid":null,"sessionId":"00000000-0000-4000-8000-000000000001","cwd":"/synthetic/repo"}
+{"type":"assistant","message":{"role":"assistant","model":"synthetic","content":[{"type":"text","text":"Here is the plan."}]},"uuid":"a-1","parentUuid":"u-1","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","message":{"role":"user","content":"Approved."},"uuid":"u-2","parentUuid":"a-1","sessionId":"00000000-0000-4000-8000-000000000001"}

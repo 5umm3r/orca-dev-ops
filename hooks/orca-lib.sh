@@ -2,8 +2,9 @@
 # Shared applicability and role detection for the Orca master/child workflow hooks.
 #
 # These hooks prevent misoperation by string and path matching; they are not a sandbox.
-# They apply to Claude sessions only: Codex is limited by its own sandbox flags and the
-# AGENTS.md rules.
+# They apply to Claude sessions only, except orca-launch-gate.sh, which orca-init.sh also
+# installs for Codex (with a copy of this file next to it); otherwise Codex is limited by its
+# own sandbox flags and the AGENTS.md rules.
 #
 # Applicability: a path is in scope when its git checkout has the orca-worktree-rules marker
 # in .claude/CLAUDE.md or AGENTS.md at the top level. Out of scope, the role is `none` and the

@@ -24,7 +24,7 @@ only the sections the task needs (the full orchestration guide is about
 | Step | Who | How |
 |---|---|---|
 | Plan with the user | master | Hearing, spec, file scope, acceptance tests |
-| Choose model and effort | user | Asked once after plan approval, only for values the user did not already specify |
+| Choose agent (claude or codex), model, and effort | user | Asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named are the "(Recommended)" option; the launch gate hook blocks a launch without the answers |
 | Implement and test | child worktree | Started per "Starting a child" below, changes left uncommitted |
 | Control the child | master only | See "Communication and state"; never hand approval or follow-ups to the user |
 | Final review | master | See "Review, integration, cleanup" |
@@ -51,7 +51,8 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sandbox, and Claude sessions only — Codex is limited by its own sandbox
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
-Codex children are not covered by Claude hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
+- `orca-launch-gate.sh` (PreToolUse, Bash) blocks a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`) until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question. A missing or unrecognized transcript is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
+Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
 ## Repository setup
 
@@ -66,6 +67,15 @@ commands - go outside the markers by hand. This installed block is also what
 `orca-role-guard.sh` and `orca-role-context.sh` look for (the
 `orca-worktree-rules` marker) to decide a checkout is in scope; without it,
 the hooks do nothing there.
+
+Codex plugins cannot ship hooks, so `/orca-init` also installs the launch gate
+for Codex coordinators into the repository: copies of `orca-launch-gate.sh`
+and `orca-lib.sh` in `.codex/hooks/` (refreshed on every run; do not edit
+them) and a `PreToolUse` `Bash` entry in `.codex/hooks.json` that runs the gate
+from the checkout's top level. An existing `.codex/hooks.json` without the
+entry needs confirmation (`--apply`) and keeps its other hooks. Codex asks the
+user once to trust new or changed hooks at its next start; until then the gate
+does not run there.
 
 ## Invariants
 
@@ -139,10 +149,16 @@ For Codex, use `--command "codex -a never -s workspace-write --add-dir
   display name. Check the grade -> effort mapping below against the chosen
   model; if the requested value is invalid for that model, stop and ask —
   never substitute silently.
-- If the user already specified agent/model/effort, do not ask again. Ask for
-  unspecified items once, after plan approval, with whatever question
-  mechanism this session has; put the recommended option first with a label
-  ending in "(Recommended)".
+- Always ask for the agent, model, and effort after plan approval, before
+  every launch, even when the user already named them: one question each with
+  header `Agent`, `Model`, and `Effort` (AskUserQuestion in Claude,
+  `request_user_input` in Codex; the async `request_user_input_async` has no
+  header, so start each title with `[Agent]`, `[Model]`, `[Effort]`). Put the
+  recommended option first with a label ending in "(Recommended)"; values the
+  user already named are that option. Never infer or pick the values yourself.
+  The launch gate hook blocks a launch until these answers exist in this
+  session after the last successful launch; retrying a failed launch needs no
+  new question.
 - After start, compare requested vs effective settings. With `--terminal`,
   `worker-start` reports `launch.effective` as null, so confirm from the
   child's screen header instead (Claude: the model line; Codex: the status

@@ -1,0 +1,2 @@
+{"type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","arguments":"{\"questions\":[{\"title\":\"[Agent] Which agent for the child?\",\"options\":[\"codex (Recommended)\",\"claude\"]},{\"title\":\"[Model] Which model?\",\"options\":[\"sol (Recommended)\"]},{\"title\":\"[effort] Which effort?\",\"options\":[\"low (Recommended)\"]}]}","call_id":"call_async"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_async","output":"{\"accepted\":true}"}}

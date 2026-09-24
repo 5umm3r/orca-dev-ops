@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_launch_failed","name":"Bash","input":{"command":"orca terminal create --worktree name:cc-task --title agent --command \"claude --model opus --effort high\" --json","description":"Start the child agent"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_launch_failed","is_error":true,"content":"Exit code 1\nError: worktree not found"}]},"toolUseResult":"Error: Exit code 1"}

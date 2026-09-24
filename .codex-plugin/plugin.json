@@ -1,7 +1,7 @@
 {
   "name": "orca-dev-ops",
   "version": "1.0.0",
-  "description": "Orca-managed worktree workflow and coordination rules for Codex, provided as a skill only (no hooks; use the Codex sandbox flags and the repository's AGENTS.md for guardrails).",
+  "description": "Orca-managed worktree workflow and coordination rules for Codex, provided as a skill. Codex plugins cannot ship hooks, so the launch gate hook (the user must answer the child agent, model, and effort questions before every launch) is installed into each repository by orca-init.sh; the Codex sandbox flags and the repository's AGENTS.md remain the other guardrails.",
   "author": {
     "name": "5umm3r"
   },
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "Orca Dev Ops",
     "shortDescription": "Coordinate Orca-managed development tasks.",
-    "longDescription": "Guides Codex through Orca worktree planning, task control, review, and delivery. Ships as a skill only; unlike the Claude Code plugin, it has no hooks or slash command, so the sandbox flags and the repository's AGENTS.md rules are the only guardrails.",
+    "longDescription": "Guides Codex through Orca worktree planning, task control, review, and delivery. Ships as a skill without a slash command; the repository init script (scripts/orca-init.sh, or /orca-init from the Claude Code plugin) installs the launch gate hook into the repository's .codex/hooks.json, which blocks a child agent launch until the user answered the Agent, Model, and Effort questions. Otherwise the sandbox flags and the repository's AGENTS.md rules are the guardrails.",
     "developerName": "5umm3r",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Write"],

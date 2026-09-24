@@ -15,15 +15,18 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-role-context.sh` | SessionStart. Tells the session whether it is the master or a child |
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
 | `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
+| `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
 | `hooks/orca-lib.sh` | Shared functions for role detection |
 | `commands/orca-init.md` | The `/orca-init` slash command |
-| `scripts/orca-init.sh` | Script that installs the worktree rules |
+| `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
 
 The hooks are launched through `${CLAUDE_PLUGIN_ROOT}` and resolve
 `orca-lib.sh` relative to their own location. No entries in
 `~/.claude/settings.json` are needed.
+Codex plugins cannot ship hooks, so for Codex the launch gate is installed into
+each repository by `/orca-init` (see below).
 
 ## Installation
 
@@ -43,6 +46,13 @@ for child worktrees in `.claude/CLAUDE.md` and links `AGENTS.md` to it.
 - If the file exists without markers: the diff is shown and confirmation for
   `--apply` is requested.
 
+It also installs the launch gate for Codex coordinators: copies of
+`orca-launch-gate.sh` and `orca-lib.sh` in `.codex/hooks/` (refreshed on every
+run) and a `PreToolUse` `Bash` entry in `.codex/hooks.json`. A missing
+`hooks.json` is created; an existing one without the entry needs `--apply` and
+keeps its other hooks; malformed JSON is reported and left unchanged. Codex
+asks the user once to trust new or changed hooks at its next start.
+
 Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification
 commands, are added by hand outside the markers.
@@ -58,9 +68,10 @@ Orca 1.4.206 and 1.4.209 (see "Known constraints" in `skills/orca-dev-ops/SKILL.
 
 ## Upgrading
 
-When a plugin update changes the worktree-rules template, run `/orca-init`
-again in every repository that uses it. Only the marker block is replaced;
-content outside the markers is kept.
+When a plugin update changes the worktree-rules template or the hooks, run
+`/orca-init` again in every repository that uses it. Only the marker block and
+the Codex hook copies are replaced; content outside the markers and other
+Codex hooks are kept.
 
 ## How it behaves
 
@@ -74,8 +85,15 @@ content outside the markers is kept.
 - Children are started as dispatched workers through
   `orca orchestration worker-start --terminal`. Fixes for review findings are
   handed over as a new Dispatch.
-- Claude hooks do not apply to Codex child agents. The sandbox flags and the
-  rules in `AGENTS.md` are the only guards.
+- Before every child launch, the coordinator asks the user one question each
+  about the child's agent, model, and effort (headers `Agent`, `Model`,
+  `Effort`). The launch gate reads the session transcript and blocks the launch
+  until those answers exist after the last successful launch; a failed launch
+  can be retried without asking again. It applies to Claude and, through
+  `/orca-init`, to Codex coordinators.
+- Apart from the launch gate, Claude hooks do not apply to Codex agents. The
+  sandbox flags and the rules in `AGENTS.md` are the only guards for Codex
+  child agents.
 - Before starting the first child, trust each repository once in both Claude
   and Codex. Do not place repositories under `/tmp` or `$TMPDIR` (they are
   writable even from the Codex sandbox).

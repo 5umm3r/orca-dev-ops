@@ -25,11 +25,28 @@
 #                                   script's exit code; .claude/CLAUDE.md already
 #                                   reports its own broken block with exit 67)
 #
-# At the end, prints whether Claude and Codex reach the same marker block.
+# Then prints whether Claude and Codex reach the same marker block.
+#
+# Codex launch gate (Codex plugins cannot ship hooks, so it is installed into
+# the repository):
+#   .codex/hooks/orca-launch-gate.sh and .codex/hooks/orca-lib.sh
+#                               -> copies of the plugin's hooks, always refreshed
+#                                   (plugin-owned; do not edit them)
+#   .codex/hooks.json missing   -> created with a PreToolUse "Bash" entry that runs
+#                                   the copied gate from the checkout's top level
+#   entry present               -> updated in place, other hooks kept
+#   file exists, no entry       -> print the entry and exit 3 unless --apply is
+#                                   given; with --apply it is merged in, other
+#                                   hooks kept
+#   malformed JSON              -> reported, exit 68, file unchanged
+# At the end, reminds that Codex asks the user to trust new or changed hooks
+# once at its next start.
 #
 # Exit codes: 0 ok; 2 .claude/CLAUDE.md needs confirmation (no marker, no
-# --apply); 64 unknown option; 65 not a git repository; 66 template not
-# found; 67 broken marker block in .claude/CLAUDE.md.
+# --apply); 3 .codex/hooks.json needs confirmation (no gate entry, no
+# --apply); 64 unknown option; 65 not a git repository; 66 template or
+# plugin hook not found; 67 broken marker block in .claude/CLAUDE.md;
+# 68 malformed .codex/hooks.json.
 set -e
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -50,6 +67,9 @@ done
 REPO=$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null) || {
   echo "not a git repository" >&2; exit 65; }
 [ -f "$TEMPLATE" ] || { echo "template not found: $TEMPLATE" >&2; exit 66; }
+for _h in orca-launch-gate.sh orca-lib.sh; do
+  [ -f "$ROOT/hooks/$_h" ] || { echo "plugin hook not found: $ROOT/hooks/$_h" >&2; exit 66; }
+done
 
 # A marker line is a line that STARTS with the marker text (index($0,m)==1),
 # never a mid-line mention. marker_state and replace_block share this exact
@@ -197,4 +217,80 @@ if [ "$AGENTS_SYNCED" = 1 ]; then
   echo "in sync: Claude (.claude/CLAUDE.md) and Codex (AGENTS.md) reach the same marker block."
 else
   echo "out of sync: Codex (AGENTS.md) does not reach the marker block that .claude/CLAUDE.md has."
+fi
+
+# Codex launch gate. Codex runs hook commands in the session's cwd, which can be a
+# subdirectory, so the command resolves the gate from the checkout's top level.
+HOOKS_JSON="$REPO/.codex/hooks.json"
+GATE_CMD='sh "$(git rev-parse --show-toplevel)/.codex/hooks/orca-launch-gate.sh"'
+# ours: a hook that runs our gate, whatever its exact command spelling.
+HOOKS_JQ='def ours: (.command? // "") | tostring | contains(".codex/hooks/orca-launch-gate.sh");
+  def entry: {matcher: "Bash", hooks: [{type: "command", command: $cmd, timeout: 10}]};'
+hooks_jq() { _p=$1; shift; jq --indent 2 --arg cmd "$GATE_CMD" "$HOOKS_JQ$_p" "$@"; }
+
+# State of .codex/hooks.json first, so a malformed file or a missing confirmation
+# changes nothing under .codex.
+if [ ! -e "$HOOKS_JSON" ]; then
+  hooks_state=missing
+elif ! jq -e 'type == "object" and ((.hooks // {}) | type) == "object"
+    and ((.hooks.PreToolUse // []) | type) == "array"
+    and all((.hooks.PreToolUse // [])[]; type == "object" and ((.hooks // []) | type) == "array")' "$HOOKS_JSON" >/dev/null 2>&1; then
+  echo "BROKEN JSON: .codex/hooks.json is not valid JSON or not a hooks file ({\"hooks\": {\"PreToolUse\": [...]}}); left unchanged. Fix it by hand and run again." >&2
+  exit 68
+elif hooks_jq 'any(.hooks.PreToolUse[]?.hooks[]?; ours)' -e "$HOOKS_JSON" >/dev/null; then
+  hooks_state=present
+elif [ "$APPLY" = 1 ]; then
+  hooks_state=merge
+else
+  echo "NEEDS CONFIRMATION: .codex/hooks.json exists without the orca launch gate entry."
+  echo "Review the hooks already in that file, then rerun with --apply to merge the entry (other hooks are kept)."
+  echo "--- PreToolUse entry that would be added ---"
+  hooks_jq 'entry' -n
+  exit 3
+fi
+
+CODEX_CHANGED=0
+mkdir -p "$REPO/.codex/hooks"
+for _h in orca-launch-gate.sh orca-lib.sh; do
+  _dst="$REPO/.codex/hooks/$_h"
+  if [ -f "$_dst" ] && cmp -s "$ROOT/hooks/$_h" "$_dst"; then
+    echo "up to date: .codex/hooks/$_h"
+  else
+    [ -f "$_dst" ] && _verb=updated || _verb=installed
+    cat "$ROOT/hooks/$_h" > "$_dst"
+    echo "$_verb: .codex/hooks/$_h"
+    CODEX_CHANGED=1
+  fi
+done
+
+_tmp=$(mktemp)
+case "$hooks_state" in
+  missing)
+    hooks_jq '{hooks: {PreToolUse: [entry]}}' -n > "$HOOKS_JSON"
+    echo "created: .codex/hooks.json"
+    CODEX_CHANGED=1
+    ;;
+  present)
+    # Update our entry in place: its group matches Bash and its hook runs the current command.
+    hooks_jq '.hooks.PreToolUse |= map(if any(.hooks[]?; ours)
+        then .matcher = "Bash" | .hooks |= map(if ours then entry.hooks[0] else . end) else . end)' \
+      "$HOOKS_JSON" > "$_tmp"
+    if jq -e --slurpfile a "$_tmp" '. == $a[0]' "$HOOKS_JSON" >/dev/null; then
+      echo "up to date: .codex/hooks.json"
+    else
+      cat "$_tmp" > "$HOOKS_JSON"
+      echo "updated: .codex/hooks.json (launch gate entry)"
+      CODEX_CHANGED=1
+    fi
+    ;;
+  merge)
+    hooks_jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [entry])' "$HOOKS_JSON" > "$_tmp"
+    cat "$_tmp" > "$HOOKS_JSON"
+    echo "merged: .codex/hooks.json (launch gate entry added; other hooks kept)"
+    CODEX_CHANGED=1
+    ;;
+esac
+rm -f "$_tmp"
+if [ "$CODEX_CHANGED" = 1 ]; then
+  echo "note: Codex asks the user to trust new or changed hooks once at its next start; the launch gate runs only after the project's .codex hooks are trusted."
 fi

@@ -1,10 +1,12 @@
 ---
-description: Install the generic "Orca worktree rules" block in this repository
+description: Install the generic "Orca worktree rules" block and the Codex launch gate in this repository
 allowed-tools: Bash(sh:*), Read
 ---
 
 Run `${CLAUDE_PLUGIN_ROOT}/scripts/orca-init.sh` to install the generic rules
-block for child worktrees in the current repository's `.claude/CLAUDE.md`.
+block for child worktrees in the current repository's `.claude/CLAUDE.md`, and
+the launch gate hook for Codex coordinators in `.codex/` (Codex plugins cannot
+ship hooks).
 
 Steps:
 
@@ -18,18 +20,28 @@ Steps:
 
    - `0` — `.claude/CLAUDE.md` was created, updated, or left unchanged. Report
      the output to the user as is and finish. Always check whether the output
-     includes a note about `AGENTS.md` (step 3 below).
+     includes a note about `AGENTS.md` (step 3 below) and read the Codex launch
+     gate lines (step 4).
    - `2` — `.claude/CLAUDE.md` exists without a marker block. Read the existing
      file and check whether it already has hand-written worktree rules. If
      anything duplicates or contradicts the block, point it out and ask the
      user whether to append the block. After approval, run
      `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-init.sh" --apply`.
-   - `64` – unknown option. `66` – template missing. `65` – outside a git
-     repository. Report the cause and finish.
+   - `3` — `.codex/hooks.json` exists without the launch gate entry (the rules
+     step already finished). Read the file, tell the user which hooks it
+     already has and show the entry the output would add; after approval, run
+     `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-init.sh" --apply`. The merge keeps
+     the other hooks. `--apply` also appends the block to an `AGENTS.md`
+     without markers, so check step 3 first and ask about both together.
+   - `64` – unknown option. `66` – template or plugin hook missing. `65` –
+     outside a git repository. Report the cause and finish.
    - `67` — the marker block in `.claude/CLAUDE.md` is broken (a start marker
      without an end marker, an end marker only, or multiple blocks). The file
      was not changed. Report the error output to the user and tell them to fix
      the affected lines by hand, then run the command again.
+   - `68` — `.codex/hooks.json` is not valid JSON or not a hooks file. Nothing
+     under `.codex` was changed. Report the error output and tell the user to
+     fix the file by hand, then run the command again.
 
 3. Check the report about `AGENTS.md` in the output.
    - `linked: AGENTS.md -> .claude/CLAUDE.md` — a new link was created. No
@@ -48,8 +60,18 @@ Steps:
      `AGENTS.md` is broken. As with `67` in step 2, tell the user to fix the
      affected lines by hand (this does not affect the script's overall exit
      code).
-   - Use the final `in sync` / `out of sync` line to confirm that Claude and
+   - Use the `in sync` / `out of sync` line to confirm that Claude and
      Codex reach the same block; if `out of sync`, tell the user why.
+
+4. Check the Codex launch gate lines in the output.
+   - `installed` / `updated` / `up to date: .codex/hooks/...` — the copies of
+     `orca-launch-gate.sh` and `orca-lib.sh` are refreshed on every run; they
+     are plugin-owned, so tell the user not to edit them.
+   - `created` / `updated` / `merged` / `up to date: .codex/hooks.json` — the
+     `PreToolUse` `Bash` entry runs the gate from the checkout's top level.
+   - `note: Codex asks the user to trust new or changed hooks` — tell the user
+     that Codex asks once at its next start and the gate runs only after they
+     trust the hooks.
 
 Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification

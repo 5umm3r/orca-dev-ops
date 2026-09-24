@@ -185,6 +185,83 @@ result "inline start mention --apply: exit 0" 0 "$rc"
 result "inline start mention --apply: original text kept" top "$(sed -n '1p' "$r/.claude/CLAUDE.md")"
 result "inline start mention --apply: block appended" 1 "$(awk -v m="$START" 'index($0,m)==1{c++} END{print c+0}' "$r/.claude/CLAUDE.md")"
 
+# --- Codex launch gate: missing .codex, installed with a fresh hooks.json ---
+r="$tmp/codex-new"; new_repo "$r"
+run "$r"
+gate_cmd='sh "$(git rev-parse --show-toplevel)/.codex/hooks/orca-launch-gate.sh"'
+same() { cmp -s "$1" "$2" && echo match || echo diff; }
+result "codex new: exit 0" 0 "$rc"
+result "codex new: gate copied" match "$(same "$root/hooks/orca-launch-gate.sh" "$r/.codex/hooks/orca-launch-gate.sh")"
+result "codex new: lib copied" match "$(same "$root/hooks/orca-lib.sh" "$r/.codex/hooks/orca-lib.sh")"
+result "codex new: created message" 1 "$(count '^created: \.codex/hooks\.json$')"
+result "codex new: one Bash entry" "Bash|$gate_cmd|10" \
+  "$(jq -r '.hooks.PreToolUse | length as $n | .[0] | "\(.matcher)|\(.hooks[0].command)|\(.hooks[0].timeout)" + (if $n == 1 then "" else " (\($n) entries)" end)' "$r/.codex/hooks.json")"
+result "codex new: trust note" 1 "$(count 'Codex asks the user to trust new or changed hooks')"
+# The installed command finds the gate from a subdirectory and denies a launch without a transcript.
+mkdir -p "$r/sub/dir"
+gate_out=$(cd "$r/sub/dir" && jq -n --arg cwd "$r/sub/dir" '{cwd:$cwd,tool_name:"Bash",tool_input:{command:"orca terminal create --command codex"},transcript_path:null}' \
+  | sh -c "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$r/.codex/hooks.json")" | jq -r '.hookSpecificOutput.permissionDecision // empty')
+result "codex new: installed gate denies from a subdirectory" deny "$gate_out"
+
+run "$r"
+result "codex rerun: exit 0" 0 "$rc"
+result "codex rerun: hooks.json up to date" 1 "$(count '^up to date: \.codex/hooks\.json$')"
+result "codex rerun: gate up to date" 1 "$(count '^up to date: \.codex/hooks/orca-launch-gate\.sh$')"
+result "codex rerun: no trust note" 0 "$(count 'Codex asks the user to trust')"
+
+echo "# stale" >> "$r/.codex/hooks/orca-lib.sh"
+run "$r"
+result "codex stale copy: refreshed" match "$(same "$root/hooks/orca-lib.sh" "$r/.codex/hooks/orca-lib.sh")"
+result "codex stale copy: reported" 1 "$(count '^updated: \.codex/hooks/orca-lib\.sh$')"
+result "codex stale copy: trust note" 1 "$(count 'Codex asks the user to trust')"
+
+# --- Codex: existing hooks.json with an outdated gate entry, updated in place ---
+r="$tmp/codex-entry"; new_repo "$r"; mkdir -p "$r/.codex"
+cat > "$r/.codex/hooks.json" <<'EOF'
+{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo start"}]}],
+  "PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "echo other"}]},
+    {"matcher": "shell", "hooks": [{"type": "command", "command": "sh .codex/hooks/orca-launch-gate.sh", "timeout": 3}]}]}}
+EOF
+run "$r"
+result "codex entry: exit 0" 0 "$rc"
+result "codex entry: reports updated" 1 "$(count '^updated: \.codex/hooks\.json')"
+result "codex entry: gate entry updated in place" "Bash|$gate_cmd|10" \
+  "$(jq -r '.hooks.PreToolUse[1] | "\(.matcher)|\(.hooks[0].command)|\(.hooks[0].timeout)"' "$r/.codex/hooks.json")"
+result "codex entry: other hooks kept" "echo start|Edit|echo other|2" \
+  "$(jq -r '"\(.hooks.SessionStart[0].hooks[0].command)|\(.hooks.PreToolUse[0].matcher)|\(.hooks.PreToolUse[0].hooks[0].command)|\(.hooks.PreToolUse | length)"' "$r/.codex/hooks.json")"
+run "$r"
+result "codex entry rerun: up to date" 1 "$(count '^up to date: \.codex/hooks\.json$')"
+
+# --- Codex: existing hooks.json without the entry: confirmation, then --apply merges ---
+r="$tmp/codex-noentry"; new_repo "$r"; mkdir -p "$r/.codex"
+printf '%s\n' '{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "echo other"}]}]}}' > "$r/.codex/hooks.json"
+before=$(cat "$r/.codex/hooks.json")
+run "$r"
+result "codex no entry: exit 3" 3 "$rc"
+result "codex no entry: file unchanged" "$before" "$(cat "$r/.codex/hooks.json")"
+result "codex no entry: gate not copied" no "$([ -e "$r/.codex/hooks" ] && echo yes || echo no)"
+result "codex no entry: shows the entry" 1 "$(count 'orca-launch-gate\.sh')"
+run "$r" --apply
+result "codex no entry --apply: exit 0" 0 "$rc"
+result "codex no entry --apply: reports merged" 1 "$(count '^merged: \.codex/hooks\.json')"
+result "codex no entry --apply: both entries" "Edit|echo other;Bash|$gate_cmd" \
+  "$(jq -r '[.hooks.PreToolUse[] | "\(.matcher)|\(.hooks[0].command)"] | join(";")' "$r/.codex/hooks.json")"
+result "codex no entry --apply: gate copied" match "$(same "$root/hooks/orca-launch-gate.sh" "$r/.codex/hooks/orca-launch-gate.sh")"
+run "$r"
+result "codex no entry rerun: exit 0" 0 "$rc"
+result "codex no entry rerun: up to date" 1 "$(count '^up to date: \.codex/hooks\.json$')"
+
+# --- Codex: malformed hooks.json: reported, nothing under .codex changes ---
+for bad in '{"hooks": ' '[]' '{"hooks": {"PreToolUse": {}}}'; do
+  r="$tmp/codex-bad"; rm -rf "$r"; new_repo "$r"; mkdir -p "$r/.codex"
+  printf '%s\n' "$bad" > "$r/.codex/hooks.json"
+  run "$r" --apply
+  result "codex malformed ($bad): exit 68" 68 "$rc"
+  result "codex malformed ($bad): file unchanged" "$bad" "$(cat "$r/.codex/hooks.json")"
+  result "codex malformed ($bad): gate not copied" no "$([ -e "$r/.codex/hooks" ] && echo yes || echo no)"
+  result "codex malformed ($bad): message" 1 "$(count '^BROKEN JSON: \.codex/hooks\.json')"
+done
+
 # --- repo path with spaces ---
 r="$tmp/repo with spaces"; new_repo "$r"
 run "$r"

@@ -1,6 +1,6 @@
 {
   "name": "orca-dev-ops",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Orca-managed worktree workflow and coordination rules for Codex, provided as a skill. Codex plugins cannot ship hooks, so the launch gate hook (the user must answer the child agent, model, and effort questions before every launch) is installed into each repository by orca-init.sh; the Codex sandbox flags and the repository's AGENTS.md remain the other guardrails.",
   "author": {
     "name": "5umm3r"

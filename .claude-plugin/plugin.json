@@ -1,6 +1,6 @@
 {
   "name": "orca-dev-ops",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Coordinator-session workflow for multi-device development with Orca. The coordinator plans, reviews, commits, and merges, while Claude or Codex agents in child worktrees implement; provided as a skill, role-detection hooks, a PreToolUse guard, and a repository init command.",
   "author": {
     "name": "5umm3r"

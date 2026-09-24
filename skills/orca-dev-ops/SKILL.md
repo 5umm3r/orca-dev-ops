@@ -167,40 +167,43 @@ and Codex children cannot write the common `.git` from the sandbox.
 
 ## Communication and state
 
+The Orca guide owns the lifecycle rules: Delivery processing and `--ack`,
+once-per-Dispatch `worker_done`, heartbeat vs progress, and completion
+accounting (reuse, retain, or release). This section adds only this
+workflow's choices and what live tests showed.
+
 - Keep Task, Dispatch, worktree, and terminal IDs separate in the plan/notes.
-  A coordinator terminal is bound to one Run at a time; reuse `run-current`
-  rather than calling `run-create` again (see "Known constraints").
+  Use one Run per coordinator session: reuse `run-current` rather than
+  calling `run-create` again (see "Known constraints").
 - Orchestration messages first; `orca terminal read/send` for supplementary
   input and recovery. Sending text to a terminal is not acceptance: confirm by
   the child's screen or its next message.
-- `heartbeat` is liveness only (`worker-show` `lastHeartbeatAt`), never
-  progress; progress comes in `status` messages. A child sometimes sends a
-  heartbeat or repeats an earlier question instead of the first `status`;
-  answer duplicates consistently and ask again for the status if it never
-  arrives (see "Known constraints").
-- A Delivery may hold several messages (e.g. `status` + `worker_done` arrived
-  in one batch). Handle every message, then `--ack` that deliveryId. On
-  timeout `deliveryId` is null: do not ack a made-up or previous id.
-  `--peek` and `--all` only inspect; they do not advance the FIFO or replace
-  the consuming `check` + `--ack`.
-- `worker_done` is accepted once per Dispatch. Review fixes and any follow-up
-  work go in a new Task + Dispatch (`task-create` + `worker-start --terminal`
-  on the same terminal/worktree when reusable). Never reuse a settled
-  dispatch ID. Ignore rejected, late, or duplicate notifications and any
-  message whose payload dispatchId is not the active Dispatch; never treat
-  one of those as completing new work.
+- A child sometimes sends a heartbeat or repeats an earlier question instead
+  of the first `status`; answer duplicates consistently and ask again for the
+  status if it never arrives (see "Known constraints").
+- The child's `worker_done` body follows the preamble (three sentences); the
+  verification commands and output come in the `status` just before it, and
+  changed paths in `--files-modified`. Review against those, not the summary.
+- Review fixes and follow-ups reuse the same terminal/worktree through a new
+  Task + Dispatch (`task-create` + `worker-start --terminal`). Ignore any
+  message whose payload dispatchId is not the active Dispatch.
 - Monitoring must match what this coordinator session can actually do:
   - Claude Code: arm a background
-    `orca orchestration check --run <run_id> --wait --timeout-ms <n> --json 2>/dev/null`
-    whose completion re-invokes the session. The wait only signals "something
-    arrived or timed out"; do not parse its output file. On wake-up, run
+    `orca orchestration check --run <run_id> --wait --types "worker_done,escalation,question" --timeout-ms <n> --json 2>/dev/null`
+    whose completion re-invokes the session. `--types` is only the wake
+    condition, so `status` and heartbeat messages wait in the batch instead
+    of waking the session. The wait only signals "something arrived or timed
+    out"; do not parse its output file. On wake-up, run
     `orca orchestration check --run <run_id> --json` (no `--wait`) to receive
-    the same Delivery, handle every message, `--ack` its deliveryId, then
-    re-arm.
-  - An agent without background re-invocation (e.g. Codex): foreground
-    `check --wait` with a timeout below its tool-call limit, repeated while
-    the turn lasts; when the turn must end, say that supervision pauses and
-    how to resume (`orca orchestration check --run <id>` on the next turn).
+    the whole Delivery, handle every message (including queued `status`),
+    `--ack` its deliveryId, then re-arm. Use a short timeout for the first
+    wait after a start, so the first `status` is read without waiting for
+    `worker_done`.
+  - An agent without background re-invocation (e.g. Codex): the same
+    `check --wait --types ...` in the foreground with a timeout below its
+    tool-call limit, repeated while the turn lasts; when the turn must end,
+    say that supervision pauses and how to resume
+    (`orca orchestration check --run <id>` on the next turn).
   - Orca injects "You have N orchestration message(s)..." into the
     coordinator terminal for `status` and `heartbeat` alike (see "Known
     constraints"), which can wake an idle session; treat it as an aid, not
@@ -227,11 +230,10 @@ agent session in the same task.
   a blanket `git add -A`. After a rebase that changed the tested content,
   rerun the required verification through a new Dispatch.
 - Children keep changes uncommitted; the coordinator commits and integrates.
-- `worker-release` and worktree removal are separate steps. Check the
-  outcome, terminal ownership, and other live Dispatches in that worktree
-  first. Treat `retained`, `release_pending`, `release_unknown` per Orca's
-  meaning (see "Known constraints" for the two `retained` reasons observed
-  live); never force-close a dispatch because something stayed open.
+- `worker-release` (per the guide's completion accounting) and worktree
+  removal are separate steps. Before removal, check terminal ownership and
+  other live Dispatches in that worktree. See "Known constraints" for the two
+  `retained` reasons observed live.
 - Remove a worktree only when: no live worker or writes remain; review,
   verification, and integration are done; no unsaved or unintegrated work
   would be lost; the user did not ask to keep it; the repo/worktree/branch to

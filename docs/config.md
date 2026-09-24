@@ -21,6 +21,30 @@ Edit of its own copy.
 Commit the file like any other repository file. A change made in the main
 checkout takes effect for the next hook call; no restart is needed.
 
+## Creation by `/orca-init`
+
+When the main checkout has no `.orca-dev-ops.json`, `/orca-init` creates it
+with every key that has a default (the values in the table below), without
+needing `--apply`, and prints `created: <path>`. It runs from a linked worktree
+too and then writes the file into the main checkout. `launch.agent`,
+`launch.model`, and `launch.effort` have no default and are not written.
+
+```json
+{
+  "launch":  { "mode": "ask" },
+  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
+  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+}
+```
+
+The written values are the defaults at creation time. A later plugin version
+that changes a default does not update the file, so the written value keeps
+applying; to follow the plugin's defaults, delete that key (or the file) or
+edit it. An existing file, valid or invalid, is never modified; `/orca-init`
+only validates and reports it. `--no-settings` skips the creation (an existing
+file is still validated). A write failure is reported on stderr and does not
+change the exit code.
+
 ## Full example
 
 ```json

@@ -56,6 +56,10 @@ run) and a `PreToolUse` `Bash` entry in `.codex/hooks.json`. A missing
 keeps its other hooks; malformed JSON is reported and left unchanged. Codex
 asks the user once to trust new or changed hooks at its next start.
 
+When the main checkout has no `.orca-dev-ops.json`, it creates one with every
+default setting (see "Settings"); `--no-settings` skips this. An existing
+settings file is never changed, only validated.
+
 Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification
 commands, are added by hand outside the markers.
@@ -67,7 +71,9 @@ choose the launch mode (`ask`: questions before every launch, the default;
 `auto`: a fixed agent, model, and effort without questions), the worktree and
 small-change limits, and the coordinator's wait. It is read from the main
 checkout only, and an invalid file is ignored with a warning. Without it,
-behavior is unchanged. See [docs/config.md](docs/config.md);
+behavior is unchanged. `/orca-init` creates it with every default; the
+written values stay as they are when a later plugin version changes a
+default. See [docs/config.md](docs/config.md);
 `scripts/orca-config.sh show` prints the effective settings.
 
 ## Prerequisites

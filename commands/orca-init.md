@@ -10,7 +10,8 @@ ship hooks).
 
 Steps:
 
-1. Run it without arguments.
+1. Run it without arguments. If the user asked not to create the
+   repository settings file, add `--no-settings`.
 
    ```sh
    sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-init.sh"
@@ -73,10 +74,19 @@ Steps:
      that Codex asks once at its next start and the gate runs only after they
      trust the hooks.
 
-5. Check the repository settings line. `.orca-dev-ops.json` is optional and
-   the script never creates or changes it (see `docs/config.md` in the
+5. Check the repository settings line. When the main checkout has no
+   `.orca-dev-ops.json`, the script creates it with every default (without
+   `--apply`); an existing file is never changed (see `docs/config.md` in the
    plugin).
-   - No line — the file does not exist; the built-in defaults apply.
+   - `created: <path>` — the file was created in the main checkout with the
+     built-in defaults. Tell the user it can be committed and edited, and
+     that the written values stay as they are when a later plugin version
+     changes a default (delete a key to follow the plugin's default).
+   - `SETTINGS NOT CREATED: ...` (stderr, exit code unchanged) — the file
+     could not be written; the built-in defaults apply. Report it to the
+     user.
+   - No line — `--no-settings` was given, or git cannot name the main
+     checkout; the built-in defaults apply.
    - `settings: ... is valid` — no action needed.
    - `INVALID SETTINGS: ...` (stderr, exit code unchanged) — the hooks ignore
      the file and use the defaults (launch mode `ask`). Report the reason to

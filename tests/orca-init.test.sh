@@ -262,27 +262,73 @@ for bad in '{"hooks": ' '[]' '{"hooks": {"PreToolUse": {}}}'; do
   result "codex malformed ($bad): message" 1 "$(count '^BROKEN JSON: \.codex/hooks\.json')"
 done
 
-# --- repository settings (.orca-dev-ops.json): never created, validated when present ---
+# --- repository settings (.orca-dev-ops.json): created with every default when absent,
+# never modified when present, validated ---
+# config_state <dir>: ORCA_CONFIG_STATE after orca_config_load, in a subshell.
+config_state() { ( . "$root/hooks/orca-lib.sh"; orca_config_load "$1"; echo "$ORCA_CONFIG_STATE" ); }
 r="$tmp/settings"; new_repo "$r"
 run "$r"
 result "settings absent: exit 0" 0 "$rc"
-result "settings absent: not created" no "$([ -e "$r/.orca-dev-ops.json" ] && echo yes || echo no)"
-result "settings absent: nothing reported" 0 "$(count 'settings')"
+result "settings absent: created message" 1 "$(count "^created: $r/\\.orca-dev-ops\\.json$")"
+cat > "$tmp/settings-want" <<'JSON'
+{
+  "launch":  { "mode": "ask" },
+  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
+  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+}
+JSON
+result "settings absent: created with every default" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-want" && echo match || echo diff)"
+result "settings absent: equals the built-in defaults" true "$(. "$root/hooks/orca-lib.sh"; jq --argjson d "$ORCA_CONFIG_DEFAULTS" '. == $d' "$r/.orca-dev-ops.json")"
+result "settings absent: created file is valid" valid "$(config_state "$r")"
+cp "$r/.orca-dev-ops.json" "$tmp/settings-before"
+run "$r"
+result "settings created, rerun: reported valid" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
+result "settings created, rerun: not created again" 0 "$(count '^created: .*\.orca-dev-ops\.json')"
+result "settings created, rerun: file untouched" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-before" && echo match || echo diff)"
 printf '%s\n' '{"limits":{"maxWorktrees":2}}' > "$r/.orca-dev-ops.json"
+cp "$r/.orca-dev-ops.json" "$tmp/settings-before"
 run "$r"
 result "settings valid: exit 0" 0 "$rc"
 result "settings valid: reported" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
+result "settings valid: file untouched" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-before" && echo match || echo diff)"
 bad='{"launch":{"mode":"auto"},"extra":1}'
 printf '%s\n' "$bad" > "$r/.orca-dev-ops.json"
 run "$r"
 result "settings invalid: exit code unchanged" 0 "$rc"
 result "settings invalid: reported" 1 "$(count '^INVALID SETTINGS: Ignored .*unknown key extra; launch.mode "auto" needs agent, model, and effort')"
 result "settings invalid: file unchanged" "$bad" "$(cat "$r/.orca-dev-ops.json")"
+result "settings invalid: not created" 0 "$(count '^created: .*\.orca-dev-ops\.json')"
 git -C "$r" worktree add -q -b t "$tmp/settings-task" || exit 1
 printf '{bad\n' > "$tmp/settings-task/.orca-dev-ops.json"
 run "$tmp/settings-task"
 result "settings from a worktree: the main checkout's file is checked" 1 "$(count "^INVALID SETTINGS: Ignored $r/\.orca-dev-ops\.json")"
 result "settings from a worktree: its own copy is not" 0 "$(count 'not valid JSON')"
+
+r="$tmp/settings-none"; new_repo "$r"
+run "$r" --no-settings
+result "settings --no-settings: exit 0" 0 "$rc"
+result "settings --no-settings: not created" no "$([ -e "$r/.orca-dev-ops.json" ] && echo yes || echo no)"
+result "settings --no-settings: nothing reported" 0 "$(count 'settings')"
+printf '{bad\n' > "$r/.orca-dev-ops.json"
+run "$r" --no-settings
+result "settings --no-settings: an existing file is still checked" 1 "$(count '^INVALID SETTINGS: Ignored .*not valid JSON')"
+
+r="$tmp/settings-readonly"; new_repo "$r"
+run "$r" --no-settings
+chmod a-w "$r"
+run "$r"
+chmod u+w "$r"
+result "settings write failure: exit code unchanged" 0 "$rc"
+result "settings write failure: reported" 1 "$(count '^SETTINGS NOT CREATED: could not write .*\.orca-dev-ops\.json')"
+result "settings write failure: not created" no "$([ -e "$r/.orca-dev-ops.json" ] && echo yes || echo no)"
+
+r="$tmp/settings-main"; new_repo "$r"
+git -C "$r" worktree add -q -b t "$tmp/settings-main-task" || exit 1
+run "$tmp/settings-main-task"
+result "settings created from a worktree: exit 0" 0 "$rc"
+result "settings created from a worktree: in the main checkout" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-want" && echo match || echo diff)"
+result "settings created from a worktree: not in the worktree" no "$([ -e "$tmp/settings-main-task/.orca-dev-ops.json" ] && echo yes || echo no)"
+result "settings created from a worktree: message names the main checkout" 1 "$(count "^created: $r/\\.orca-dev-ops\\.json$")"
 
 # --- repo path with spaces ---
 r="$tmp/repo with spaces"; new_repo "$r"

@@ -79,6 +79,11 @@ entry needs confirmation (`--apply`) and keeps its other hooks. Codex asks the
 user once to trust new or changed hooks at its next start; until then the gate
 does not run there.
 
+`/orca-init` also creates `.orca-dev-ops.json` in the main checkout when it is
+missing, with every key that has a default (see "Repository settings"; no
+`--apply` needed, `--no-settings` skips it). An existing file is never
+modified, only validated.
+
 ## Repository settings
 
 A repository can tune this workflow with an optional `.orca-dev-ops.json` at
@@ -87,7 +92,9 @@ its top level (full reference: `docs/config.md` in the plugin): `launch`
 (`maxWorktrees`, `smallChangeFiles`, `smallChangeLines`), and `monitor`
 (`wakeOnStatus`, `timeoutMs`). Without the file, the built-in defaults apply,
 which are the behavior this skill describes (launch mode `ask`, 3 worktrees,
-2 files and 20 lines, 590000 ms). The hooks and scripts read it from the main
+2 files and 20 lines, 590000 ms); `/orca-init` writes exactly these values
+when it creates the file, and they stay as written when a later plugin version
+changes a default. The hooks and scripts read it from the main
 checkout only, never from a child worktree. An invalid file is ignored as a
 whole (defaults, launch mode `ask`) with a warning in the session context and
 in every deny.

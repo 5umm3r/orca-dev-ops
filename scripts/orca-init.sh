@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install the generic "Orca worktree rules" block into a repository.
 #
-#   orca-init.sh [--apply] [repo-path]
+#   orca-init.sh [--apply] [--no-settings] [repo-path]
 #
 # Target files: <repo>/.claude/CLAUDE.md (Claude) and <repo>/AGENTS.md (Codex).
 #
@@ -42,16 +42,23 @@
 # At the end, reminds that Codex asks the user to trust new or changed hooks
 # once at its next start.
 #
-# Repository settings: .orca-dev-ops.json (in the main checkout) is optional
-# and never created or modified; when present it is validated first, and an
-# invalid file is reported on stderr (the hooks ignore it and use the
-# built-in defaults) without changing the exit code.
+# Repository settings: .orca-dev-ops.json (in the main checkout, handled first):
+#   missing                     -> created with every key that has a built-in
+#                                   default (the values at creation time; later
+#                                   plugin default changes do not update it),
+#                                   without needing --apply; --no-settings skips
+#                                   this
+#   present                     -> never modified; validated, and an invalid file
+#                                   is reported on stderr (the hooks ignore it and
+#                                   use the built-in defaults)
+#   main checkout unknown       -> nothing is done
+# Neither an invalid file nor a failed write changes the exit code.
 #
 # Exit codes: 0 ok; 2 .claude/CLAUDE.md needs confirmation (no marker, no
 # --apply); 3 .codex/hooks.json needs confirmation (no gate entry, no
-# --apply); 64 unknown option; 65 not a git repository; 66 template or
-# plugin hook not found; 67 broken marker block in .claude/CLAUDE.md;
-# 68 malformed .codex/hooks.json.
+# --apply); 64 unknown option (usage: [--apply] [--no-settings] [repo-path]);
+# 65 not a git repository; 66 template or plugin hook not found; 67 broken
+# marker block in .claude/CLAUDE.md; 68 malformed .codex/hooks.json.
 set -e
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -60,11 +67,13 @@ START='<!-- orca-worktree-rules:start'
 END='<!-- orca-worktree-rules:end -->'
 
 APPLY=0
+SETTINGS=1
 REPO=""
 for a in "$@"; do
   case "$a" in
     --apply) APPLY=1 ;;
-    -*) echo "unknown option: $a" >&2; exit 64 ;;
+    --no-settings) SETTINGS=0 ;;
+    -*) echo "unknown option: $a" >&2; echo "usage: orca-init.sh [--apply] [--no-settings] [repo-path]" >&2; exit 64 ;;
     *) REPO="$a" ;;
   esac
 done
@@ -76,11 +85,30 @@ for _h in orca-launch-gate.sh orca-lib.sh; do
   [ -f "$ROOT/hooks/$_h" ] || { echo "plugin hook not found: $ROOT/hooks/$_h" >&2; exit 66; }
 done
 
-# Repository settings (.orca-dev-ops.json in the main checkout): optional, never created or
-# modified here; only validated and reported. A problem does not change the exit code.
+# Repository settings (.orca-dev-ops.json in the main checkout): created with every default
+# when missing (unless --no-settings), never modified when present, only validated and
+# reported. A problem does not change the exit code.
 . "$ROOT/hooks/orca-lib.sh"
 orca_config_load "$REPO" || :
 case "$ORCA_CONFIG_STATE" in
+  missing)
+    if [ "$SETTINGS" = 1 ] && [ -n "$ORCA_CONFIG_PATH" ]; then
+      # One line per section, from ORCA_CONFIG_DEFAULTS so the defaults have one source.
+      _settings=$(printf '%s' "$ORCA_CONFIG_DEFAULTS" | jq -r '
+        def flat: if type == "object"
+          then "{ " + (to_entries | map("\(.key | tojson): \(.value | tojson)") | join(", ")) + " }"
+          else tojson end;
+        (keys_unsorted | map(length) | max) as $w
+        | "{", (to_entries | map("  \(.key | tojson):" + " " * ($w - (.key | length) + 1) + (.value | flat))
+          | join(",\n")), "}"') || _settings=
+      # noclobber: a file that appears meanwhile is never overwritten.
+      if [ -n "$_settings" ] && ( set -C; printf '%s\n' "$_settings" > "$ORCA_CONFIG_PATH" ) 2>/dev/null; then
+        echo "created: $ORCA_CONFIG_PATH"
+      else
+        echo "SETTINGS NOT CREATED: could not write $ORCA_CONFIG_PATH; the built-in defaults apply." >&2
+      fi
+    fi
+    ;;
   valid) echo "settings: $ORCA_CONFIG_PATH is valid" ;;
   invalid) echo "INVALID SETTINGS: $ORCA_CONFIG_ERROR Fix it by hand (see docs/config.md in the plugin); it was left unchanged." >&2 ;;
 esac

@@ -1,0 +1,5 @@
+{
+  "launch":  { "mode": "auto", "agent": "claude", "model": "claude-opus-5-5", "effort": "high" },
+  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
+  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+}

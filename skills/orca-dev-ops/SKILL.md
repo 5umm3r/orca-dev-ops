@@ -181,6 +181,8 @@ and Codex children cannot write the common `.git` from the sandbox.
 - A Delivery may hold several messages (e.g. `status` + `worker_done` arrived
   in one batch). Handle every message, then `--ack` that deliveryId. On
   timeout `deliveryId` is null: do not ack a made-up or previous id.
+  `--peek` and `--all` only inspect; they do not advance the FIFO or replace
+  the consuming `check` + `--ack`.
 - `worker_done` is accepted once per Dispatch. Review fixes and any follow-up
   work go in a new Task + Dispatch (`task-create` + `worker-start --terminal`
   on the same terminal/worktree when reusable). Never reuse a settled
@@ -188,8 +190,13 @@ and Codex children cannot write the common `.git` from the sandbox.
   message whose payload dispatchId is not the active Dispatch; never treat
   one of those as completing new work.
 - Monitoring must match what this coordinator session can actually do:
-  - Claude Code: a background `check --wait` whose completion re-invokes the
-    session; re-arm after every wake-up.
+  - Claude Code: arm a background
+    `orca orchestration check --run <run_id> --wait --timeout-ms <n> --json 2>/dev/null`
+    whose completion re-invokes the session. The wait only signals "something
+    arrived or timed out"; do not parse its output file. On wake-up, run
+    `orca orchestration check --run <run_id> --json` (no `--wait`) to receive
+    the same Delivery, handle every message, `--ack` its deliveryId, then
+    re-arm.
   - An agent without background re-invocation (e.g. Codex): foreground
     `check --wait` with a timeout below its tool-call limit, repeated while
     the turn lasts; when the turn must end, say that supervision pauses and
@@ -304,3 +311,9 @@ release -> worktree removal.
   `consumer_fenced`. Use one Run per coordinator session (reuse
   `run-current`); start a new Run only when no Dispatch of the current Run
   is still live.
+- Observed on Orca 1.4.209: `check --wait --json` emits keepalive JSON lines
+  (`{"_keepalive":true,"_heartbeat":true,...}`) on stderr every 15 s and the
+  pretty-printed Delivery JSON on stdout, so a background shell's combined
+  output file is not one JSON document. Hence the `2>/dev/null` redirect and
+  the re-check without `--wait`, which returned the same deliveryId and
+  messages until `--ack`.

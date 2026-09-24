@@ -17,6 +17,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `hooks/orca-lib.sh` | ロール判定の共通関数 |
 | `commands/orca-init.md` | `/orca-init` スラッシュコマンド |
 | `scripts/orca-init.sh` | worktree rules を設置するスクリプト |
+| `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
 | `templates/worktree-rules.md` | 設置される汎用ルールブロック |
 
 フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
@@ -49,6 +50,12 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 Orca とは: ワークツリーとエージェントのターミナルを管理するマルチエージェントアプリで、
 本プラグインはその `orca` CLI を操作する。スキルは Orca 1.4.206 で動作確認している
 （`skills/orca-dev-ops/SKILL.md` の「Known constraints」を参照）。
+
+## アップグレード
+
+プラグインの更新で worktree rules のテンプレートが変わったら、それを使っている
+すべてのリポジトリで `/orca-init` を実行し直す。置換されるのはマーカーブロックのみで、
+マーカーの外の内容は保持される。
 
 ## v2.0.0 への移行
 

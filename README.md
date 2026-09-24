@@ -18,6 +18,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-lib.sh` | Shared functions for role detection |
 | `commands/orca-init.md` | The `/orca-init` slash command |
 | `scripts/orca-init.sh` | Script that installs the worktree rules |
+| `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
 
 The hooks are launched through `${CLAUDE_PLUGIN_ROOT}` and resolve
@@ -54,6 +55,12 @@ commands, are added by hand outside the markers.
 What is Orca: Orca is the multi-agent app that manages worktrees and agent
 terminals; this plugin drives its `orca` CLI. The skill was verified with
 Orca 1.4.206 (see "Known constraints" in `skills/orca-dev-ops/SKILL.md`).
+
+## Upgrading
+
+When a plugin update changes the worktree-rules template, run `/orca-init`
+again in every repository that uses it. Only the marker block is replaced;
+content outside the markers is kept.
 
 ## Migrating to v2.0.0
 

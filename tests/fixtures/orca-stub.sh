@@ -8,7 +8,16 @@
 #                       `worktree current` answers for the deepest entry containing the cwd.
 #   ORCA_STUB_BASE_REF  worktreeBaseRef returned by `repo show` (default: null)
 #   ORCA_STUB_REMOTE    gitRemoteIdentity.remoteName returned by `repo show` (default: origin; "null" for null)
+#   ORCA_STUB_LOG       when set, every call's arguments are appended to this file, one call per line.
+#   ORCA_STUB_HEADER_AFTER  `terminal read` shows an agent header from this call on (1 = the first
+#                       call; default 1; "never" for never). Counts need ORCA_STUB_LOG.
+#   ORCA_STUB_START     space-separated outcomes of successive `orchestration worker-start` calls
+#                       (default: ok): ok, race (not a recognized agent, JSON on stdout),
+#                       race-stderr (the same as a plain message on stderr), other (another error).
 fx=$ORCA_STUB_FIXTURES
+[ -n "${ORCA_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$ORCA_STUB_LOG"
+# calls <prefix>: how many logged calls, including this one, start with <prefix>.
+calls() { [ -n "${ORCA_STUB_LOG:-}" ] && grep -c "^$1" "$ORCA_STUB_LOG" || echo 1; }
 case "${ORCA_STUB:-}" in
 fail) exit 1 ;;
 garbage) echo 'orca: something went wrong'; exit 0 ;;
@@ -51,6 +60,26 @@ case "$1 $2" in
     .result.repo.path = $p
     | .result.repo.worktreeBaseRef = (if $base == "" then null else $base end)
     | .result.repo.gitRemoteIdentity.remoteName = (if $remote == "null" then null else $remote end)' "$fx/repo-show.json"
+  ;;
+"terminal read")
+  after=${ORCA_STUB_HEADER_AFTER:-1}
+  line='Claude Code'
+  [ "$after" != never ] && [ "$(calls 'terminal read')" -ge "$after" ] && line='[Opus 5.5] | cc-task'
+  jq -n --arg l "$line" '{ok: true, result: {terminal: {handle: "term_stub", status: "running",
+    tail: ["", $l, "❯"], source: "screen"}}}'
+  ;;
+"orchestration worker-start")
+  n=$(calls 'orchestration worker-start')
+  set -- ${ORCA_STUB_START:-ok}
+  outcome=ok
+  while [ "$n" -gt 0 ] && [ $# -gt 0 ]; do outcome=$1; n=$((n - 1)); shift; done
+  msg='Terminal term_stub is not running a recognized agent.'
+  case "$outcome" in
+  ok) echo '{"ok":true,"result":{"worker":{"terminal":"term_stub","status":"started"}}}' ;;
+  race) jq -n --arg m "$msg" '{ok: false, error: {code: "invalid_argument", message: $m}}'; exit 1 ;;
+  race-stderr) echo "Error: $msg" >&2; exit 1 ;;
+  other) echo '{"ok":false,"error":{"code":"not_found","message":"Task task_stub not found."}}'; exit 1 ;;
+  esac
   ;;
 *) echo "orca stub: unsupported command: $*" >&2; exit 2 ;;
 esac

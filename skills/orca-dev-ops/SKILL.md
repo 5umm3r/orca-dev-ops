@@ -99,6 +99,16 @@ for these agents — is: `orca worktree create` -> `orca terminal create` with
 the full agent command -> wait for `tui-idle` -> `orca orchestration
 task-create` + `worker-start --terminal <handle> --worktree <sel>`.
 
+`tui-idle` can return before Orca recognizes the agent. Before
+`worker-start`, confirm with `orca terminal read --terminal <handle>` that the
+agent header (e.g. `Opus 5.5 with high effort`) is on screen. If
+`worker-start` still fails with "not a recognized agent", wait a few seconds
+and retry once with the same task ID; never re-run `task-create`. If the retry
+also fails, stop and report. The plugin's `scripts/orca-worker-start.sh`
+(resolved the same way as `orca-base-ref.sh` in "Invariants") does the header
+check and the single retry in one step: exit 0 started, 3 no header (not
+called), 4 failed twice, 1 other failure.
+
 ```sh
 orca worktree create --name cc-<topic> --base-branch <base ref> \
   --comment "agent:claude model:<model> effort:<grade> scope:<files>" --json
@@ -107,8 +117,8 @@ orca terminal create --worktree name:cc-<topic> --title agent \
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
 orca orchestration task-create --run <run_id> --task-title "<topic>" \
   --spec "Read <absolute prompt-file path> and execute it." --json
-orca orchestration worker-start --run <run_id> --task <task_id> \
-  --terminal <handle> --worktree name:cc-<topic> --json
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --run <run_id> --task <task_id> \
+  --terminal <handle> --worktree name:cc-<topic>
 ```
 
 For Codex, use `--command "codex -a never -s workspace-write --add-dir
@@ -187,15 +197,18 @@ workflow's choices and what live tests showed.
 - Monitoring must match what this coordinator session can actually do:
   - Claude Code: arm a background
     `orca orchestration check --run <run_id> --wait --types "worker_done,escalation,question" --timeout-ms <n> --json 2>/dev/null`
-    whose completion re-invokes the session. `--types` is only the wake
-    condition, so `status` and heartbeat messages wait in the batch instead
-    of waking the session. The wait only signals "something arrived or timed
-    out"; do not parse its output file. On wake-up, run
-    `orca orchestration check --run <run_id> --json` (no `--wait`) to receive
-    the whole Delivery, handle every message (including queued `status`),
-    `--ack` its deliveryId, then re-arm. Use a short timeout for the first
-    wait after a start, so the first `status` is read without waiting for
-    `worker_done`.
+    whose completion re-invokes the session. `--types` only narrows when the
+    waiter wakes and is not reliable: a heartbeat alone can end the wait
+    (see "Known constraints"). When a wait returns, read what arrived — the
+    wait's own result, or `orca orchestration check --run <run_id> --json`
+    (no `--wait`) for the whole Delivery. If the batch holds only
+    heartbeats, `--ack` it and re-arm. Otherwise handle every message
+    (including queued `status`), `--ack` its deliveryId, then re-arm. When
+    reading the `--json` output of `check --wait`, drop the keepalive lines
+    and take the final object, e.g.
+    `jq -s 'map(select(._keepalive | not)) | last'`. Use a short timeout for
+    the first wait after a start, so the first `status` is read without
+    waiting for `worker_done`.
   - An agent without background re-invocation (e.g. Codex): the same
     `check --wait --types ...` in the foreground with a timeout below its
     tool-call limit, repeated while the turn lasts; when the turn must end,
@@ -268,7 +281,7 @@ Every direct edit spends master context. When a change grows past the limits, st
 - Verification follows the repository's verification ladder; the full suite only where the repository requires it or before merge when requested.
 - Once a question is answered, treat the answer as settled; do not revisit it.
 
-## Known constraints (verified 2026-09-23, Orca 1.4.206, codex-cli 0.156.0, Claude Code 2.1.280)
+## Known constraints (verified 2026-09-23 and 2026-09-24, Orca 1.4.206 and 1.4.209, codex-cli 0.156.0, Claude Code 2.1.280 and 2.1.281)
 
 Confirmed by live tests in both directions (Claude coordinator with a Codex
 child, and Codex coordinator with a Claude child), each completing start ->
@@ -320,3 +333,17 @@ release -> worktree removal.
   output file is not one JSON document. Hence the `2>/dev/null` redirect and
   the re-check without `--wait`, which returned the same deliveryId and
   messages until `--ack`.
+- On Orca 1.4.209 with Claude Code 2.1.281, `worker-start --terminal` right
+  after `terminal wait --for tui-idle` returned `satisfied: true` failed 2 of
+  2 times with "Terminal term_... is not running a recognized agent."; the
+  same `worker-start` with the same task ID succeeded a few seconds later.
+- On Orca 1.4.209, a background `check --wait --types
+  "worker_done,escalation,question"` repeatedly returned when only a
+  `heartbeat` had arrived; the type filter does not reliably exclude
+  heartbeats.
+- On Orca 1.4.209, `check --wait --json` also wrote the keepalive lines to
+  stdout (one single-line object every ~15 s, e.g.
+  `{"_keepalive":true,"_heartbeat":true,"elapsedMs":15000,"deadlineMs":590000}`)
+  before the pretty-printed result, so piping stdout straight into
+  `jq '.result...'` fails or yields empty objects; filter with
+  `jq -s 'map(select(._keepalive | not)) | last'`.

@@ -73,6 +73,15 @@ Steps:
      that Codex asks once at its next start and the gate runs only after they
      trust the hooks.
 
+5. Check the repository settings line. `.orca-dev-ops.json` is optional and
+   the script never creates or changes it (see `docs/config.md` in the
+   plugin).
+   - No line — the file does not exist; the built-in defaults apply.
+   - `settings: ... is valid` — no action needed.
+   - `INVALID SETTINGS: ...` (stderr, exit code unchanged) — the hooks ignore
+     the file and use the defaults (launch mode `ask`). Report the reason to
+     the user and tell them to fix the file by hand.
+
 Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification
 commands, are added by hand outside the marker block.

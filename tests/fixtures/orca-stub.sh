@@ -14,6 +14,14 @@
 #   ORCA_STUB_START     space-separated outcomes of successive `orchestration worker-start` calls
 #                       (default: ok): ok, race (not a recognized agent, JSON on stdout),
 #                       race-stderr (the same as a plain message on stderr), other (another error).
+#   ORCA_STUB_WORKTREE_LIST  `worktree list`: ok (default; the git worktrees of the --repo main
+#                       checkout, main first), truncated (the same with truncated: true).
+#   ORCA_STUB_CHECK     space-separated results of successive `orchestration check` calls
+#                       (default: timeout): timeout (empty, timedOut), empty (empty, not timed
+#                       out), error (ok false, exit 1), or a comma-separated list of message
+#                       types for one Delivery with deliveryId dlv_<call number> (`untyped` is a
+#                       message whose type is null). Each result follows a keepalive line on
+#                       stdout and stderr.
 fx=$ORCA_STUB_FIXTURES
 [ -n "${ORCA_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$ORCA_STUB_LOG"
 # calls <prefix>: how many logged calls, including this one, start with <prefix>.
@@ -60,6 +68,42 @@ case "$1 $2" in
     .result.repo.path = $p
     | .result.repo.worktreeBaseRef = (if $base == "" then null else $base end)
     | .result.repo.gitRemoteIdentity.remoteName = (if $remote == "null" then null else $remote end)' "$fx/repo-show.json"
+  ;;
+"worktree list")
+  sel=
+  while [ $# -gt 0 ]; do [ "$1" = --repo ] && sel=$2; shift; done
+  p=${sel#path:}
+  case "$(lookup "$p")" in
+  "$p${tab}main") ;;
+  *) cat "$fx/repo-show-not-found.json"; exit 1 ;;
+  esac
+  git -C "$p" worktree list --porcelain | sed -n 's/^worktree //p' \
+    | jq -R . | jq -s --slurpfile f "$fx/worktree-list.json" --arg trunc "${ORCA_STUB_WORKTREE_LIST:-ok}" '
+      . as $paths | $f[0] | .result.worktrees[0] as $row
+      | .result.worktrees = [$paths | to_entries[] | .key as $i | .value as $p | $row
+          | .path = $p | .git.path = $p | .id = (.repoId + "::" + $p)
+          | .isMainWorktree = ($i == 0) | .git.isMainWorktree = ($i == 0)]
+      | .result.totalCount = ($paths | length)
+      | .result.truncated = ($trunc == "truncated")'
+  ;;
+"orchestration check")
+  n=$(calls 'orchestration check')
+  set -- ${ORCA_STUB_CHECK:-timeout}
+  outcome=timeout
+  while [ "$n" -gt 0 ] && [ $# -gt 0 ]; do outcome=$1; n=$((n - 1)); shift; done
+  keepalive='{"_keepalive":true,"_heartbeat":true,"elapsedMs":15000,"deadlineMs":590000}'
+  echo "$keepalive"; echo "$keepalive" >&2
+  case "$outcome" in
+  error) echo '{"ok":false,"error":{"code":"consumer_fenced","message":"Run run_stub is bound to another consumer."}}'; exit 1 ;;
+  timeout | empty) jq --argjson t "$([ "$outcome" = timeout ] && echo true || echo false)" \
+      '.result.deliveryId = null | .result.messages = [] | .result.count = 0 | .result.timedOut = $t' "$fx/check-delivery.json" ;;
+  *) jq --arg types "$outcome" --arg d "dlv_$(calls 'orchestration check')" '
+      .result.messages[0] as $m
+      | .result.deliveryId = $d
+      | .result.messages = [$types | split(",") | to_entries[]
+          | $m + {id: "msg_\($d)_\(.key)", type: (if .value == "untyped" then null else .value end), subject: "\(.value) \(.key)"}]
+      | .result.count = (.result.messages | length)' "$fx/check-delivery.json" ;;
+  esac
   ;;
 "terminal read")
   after=${ORCA_STUB_HEADER_AFTER:-1}

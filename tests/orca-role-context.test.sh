@@ -27,6 +27,19 @@ lacks "master: no origin/master" "$m" "origin/master"
 result "master: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
 m=$(CLAUDE_PLUGIN_ROOT="$tmp/plugin root" ctx "$repo")
 has "master: base ref helper under CLAUDE_PLUGIN_ROOT" "$m" "$tmp/plugin root/scripts/orca-base-ref.sh"
+has "master, no settings: launch mode ask" "$(ctx "$repo")" "Launch mode: ask"
+lacks "master, no settings: no warning" "$(ctx "$repo")" "Settings warning"
+
+# .orca-dev-ops.json in the main checkout
+printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, auto: mode and values" "$m" "Launch mode: auto (agent codex, model gpt-sol, effort xhigh;"
+result "master, auto: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
+printf '%s\n' '{"launch":{"mode":"auto"}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, invalid: launch mode ask" "$m" "Launch mode: ask"
+has "master, invalid: warning" "$m" "Settings warning: Ignored $repo/.orca-dev-ops.json"
+rm -f "$repo/.orca-dev-ops.json"
 
 c=$(ctx "$child")
 has "child: uncommitted" "$c" "uncommitted"

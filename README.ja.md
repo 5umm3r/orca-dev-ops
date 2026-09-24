@@ -15,10 +15,13 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止する |
 | `hooks/orca-child-control.sh` | PostToolUse。`orca worktree create` 後に制御手順を注入する |
 | `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動をブロックする（Claude と Codex） |
-| `hooks/orca-lib.sh` | ロール判定の共通関数 |
+| `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
 | `commands/orca-init.md` | `/orca-init` スラッシュコマンド |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
 | `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
+| `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
+| `scripts/orca-wait.sh` | コーディネーター用の待機。対応が必要なメッセージで起き、heartbeat と status だけのバッチは確認応答して status を保持する |
+| `docs/config.ja.md` | リポジトリ設定ファイルのリファレンス |
 | `templates/worktree-rules.md` | 設置される汎用ルールブロック |
 
 フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
@@ -52,6 +55,16 @@ Codex のプラグインはフックを同梱できないため、Codex 向け�
 設置されるのは汎用ブロックのみ。並行編集禁止ファイルの一覧や検証コマンドなど、
 リポジトリ固有のルールはマーカーの外に人手で追記する。
 
+## 設定
+
+リポジトリのトップレベルに任意の `.orca-dev-ops.json` を置くと、起動モード（`ask`:
+起動のたびに質問する。デフォルト。`auto`: 質問せず、決まったエージェント・モデル・
+エフォートで起動する）、ワークツリー数と小さな変更の上限、コーディネーターの待機を
+設定できる。ファイルはメインチェックアウトからのみ読み、不正な場合は警告を出して
+無視する。ファイルが無ければ動作は変わらない。詳細は
+[docs/config.ja.md](docs/config.ja.md) を参照。`scripts/orca-config.sh show` で
+有効な設定を表示できる。
+
 ## 前提
 
 - `orca` CLI が `PATH` 上にあること。
@@ -77,7 +90,7 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
   `orca repo set-base-ref` で設定する。
 - 子は `orca orchestration worker-start --terminal` によるディスパッチワーカー
   として起動する。レビュー指摘の修正は新しい Dispatch として渡す。
-- 子を起動するたびに、コーディネーターは子のエージェント・モデル・エフォートについて
+- 起動モード `ask`（デフォルト。「設定」を参照）では、子を起動するたびに、コーディネーターは子のエージェント・モデル・エフォートについて
   1 問ずつ（ヘッダー `Agent`・`Model`・`Effort`）ユーザーに質問する。起動ゲートは
   セッションのトランスクリプトを読み、直前の成功した起動より後にその回答が揃うまで
   起動をブロックする。失敗した起動は質問し直さずに再試行できる。Claude に適用され、

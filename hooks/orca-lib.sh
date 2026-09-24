@@ -118,3 +118,77 @@ orca_worktrees() {
     case "$_l" in "worktree "*) orca_phys "${_l#worktree }" ;; esac
   done
 }
+
+# Per-repository settings: an optional .orca-dev-ops.json at the top level of the main checkout
+# (see docs/config.md). It is always read from the main checkout, never from a linked worktree,
+# so a child cannot loosen its own limits by editing its copy. A missing file, or a checkout
+# whose main checkout git cannot name, means the built-in defaults (the behavior without
+# settings). An invalid file (bad JSON, an unknown key, a wrong type or value, or launch mode
+# auto without agent, model, and effort) is ignored as a whole: the defaults apply and
+# ORCA_CONFIG_ERROR says why.
+ORCA_CONFIG_FILE=.orca-dev-ops.json
+ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}'
+# Reads the slurped file (an array of its JSON values) and prints every problem, "; "-joined;
+# empty when the file is valid.
+ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
+  def word: type == "string" and test("^\\S+$");
+  def section($name; $allowed):
+    if has($name) | not then empty
+    elif (.[$name] | type) != "object" then "\($name) must be an object"
+    else (.[$name] | keys - $allowed)[] | "unknown key \($name).\(.)" end;
+  def need($k; ok; $what): if has($k) and (.[$k] | ok | not) then "\($k) must be \($what)" else empty end;
+  if length != 1 then "the file must hold exactly one JSON object"
+  else .[0] | if type != "object" then "the top level must be a JSON object" else [
+    ((keys - ["launch", "limits", "monitor"])[] | "unknown key \(.)"),
+    section("launch"; ["mode", "agent", "model", "effort"]),
+    section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
+    section("monitor"; ["wakeOnStatus", "timeoutMs"]),
+    (.launch | objects | (
+      need("mode"; . == "ask" or . == "auto"; "\"ask\" or \"auto\""),
+      need("agent"; . == "claude" or . == "codex"; "\"claude\" or \"codex\""),
+      need("model"; word; "a non-empty string without spaces"),
+      need("effort"; word; "a non-empty string without spaces"),
+      (select(.mode == "auto" and ([.agent, .model, .effort] | all(word) | not))
+        | "mode \"auto\" needs agent, model, and effort")) | "launch.\(.)"),
+    (.limits | objects | (
+      need("maxWorktrees"; int and . >= 1; "an integer >= 1"),
+      need("smallChangeFiles"; int and . >= 0; "an integer >= 0"),
+      need("smallChangeLines"; int and . >= 0; "an integer >= 0")) | "limits.\(.)"),
+    (.monitor | objects | (
+      need("wakeOnStatus"; type == "boolean"; "true or false"),
+      need("timeoutMs"; int and . > 0; "an integer > 0")) | "monitor.\(.)")
+  ] | join("; ") end end'
+
+# orca_main_checkout <dir>: physical path of the main checkout of the repository at <dir>, or empty.
+orca_main_checkout() { orca_worktrees "$1" | sed -n 1p; }
+
+# orca_config_load <dir>: loads the settings of the repository at <dir> into
+#   ORCA_CONFIG        the effective JSON (defaults merged with the file), compact
+#   ORCA_CONFIG_STATE  missing, valid, or invalid
+#   ORCA_CONFIG_PATH   the file it looked for (empty when the main checkout is unknown)
+#   ORCA_CONFIG_ERROR  why an invalid file was ignored (empty otherwise)
+# Always returns 0; safe under set -e.
+orca_config_load() {
+  ORCA_CONFIG=$ORCA_CONFIG_DEFAULTS ORCA_CONFIG_STATE=missing ORCA_CONFIG_PATH= ORCA_CONFIG_ERROR=
+  _m=$(orca_main_checkout "$1") || _m=
+  if [ -z "$_m" ]; then return 0; fi
+  ORCA_CONFIG_PATH=$_m/$ORCA_CONFIG_FILE
+  if [ ! -e "$ORCA_CONFIG_PATH" ] && [ ! -L "$ORCA_CONFIG_PATH" ]; then return 0; fi
+  if [ ! -f "$ORCA_CONFIG_PATH" ] || [ ! -r "$ORCA_CONFIG_PATH" ]; then
+    _e='it is not a readable regular file'
+  else
+    _e=$(jq -rs "$ORCA_CONFIG_CHECK" "$ORCA_CONFIG_PATH" 2>/dev/null) || _e='it is not valid JSON'
+  fi
+  if [ -z "$_e" ]; then
+    _c=$(jq -cs --argjson d "$ORCA_CONFIG_DEFAULTS" '$d * .[0]' "$ORCA_CONFIG_PATH" 2>/dev/null) || _c=
+    if [ -n "$_c" ]; then ORCA_CONFIG=$_c ORCA_CONFIG_STATE=valid; return 0; fi
+    _e='it could not be read'
+  fi
+  ORCA_CONFIG_STATE=invalid
+  ORCA_CONFIG_ERROR="Ignored $ORCA_CONFIG_PATH ($_e); the built-in defaults apply, including launch mode ask."
+  return 0
+}
+
+# orca_config <jq path>: one value of the loaded settings (after orca_config_load), raw; empty
+# when unset.
+orca_config() { printf '%s' "$ORCA_CONFIG" | jq -r "$1 | select(. != null)" 2>/dev/null; }

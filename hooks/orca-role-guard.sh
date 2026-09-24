@@ -101,6 +101,21 @@ Bash)
   cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' | join_lines)
   if [ "$role" = master ]; then
     git_sub 'worktree[[:space:]]+(add|remove|prune)' && deny "Use the orca CLI (orca worktree create / orca worktree rm) instead of raw git worktree commands."
+    # orca worktree create: at most limits.maxWorktrees task worktrees; fails closed when Orca
+    # cannot give the complete list of this repository's worktrees.
+    commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix"'
+      if (w == "orca" && $(i + 1) == "worktree" && $(i + 2) == "create") { found = 1; exit } }
+      END { exit !found }' || exit 0
+    orca_config_load "$own"
+    max=$(orca_config .limits.maxWorktrees)
+    main=$(orca_main_checkout "$own")
+    n=$(cd "$own" 2>/dev/null && orca_cli worktree list --repo "path:${main:-$own}" --json 2>/dev/null \
+      | jq -r 'select(.ok == true and (.result.worktrees | type) == "array" and .result.truncated != true)
+        | [.result.worktrees[] | select(.isMainWorktree != true)] | length' 2>/dev/null)
+    case "$n" in
+    '' | *[!0-9]*) deny "Could not count this repository's task worktrees (orca worktree list failed or returned an incomplete list), so orca worktree create is blocked; the limit is $max (limits.maxWorktrees). Make sure Orca is running and retry.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}" ;;
+    esac
+    [ "$n" -ge "$max" ] && deny "This repository already has $n task worktree(s) and the limit is $max (limits.maxWorktrees). Integrate and remove one before creating another; do not raise the limit on your own.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}"
     exit 0
   fi
   # child, or unknown in scope.
@@ -170,6 +185,8 @@ Edit|MultiEdit|Write|NotebookEdit)
   # Checkouts of the session's own repository: the main checkout first, then linked worktrees.
   same=$(orca_worktrees "$own" | grep -Fx -- "$ftop")
   if [ "$role" = child ]; then
+    # The settings are read from the main checkout only; a child never edits its copy either.
+    [ "$f" = "$own/$ORCA_CONFIG_FILE" ] && deny "A child worktree session does not edit $ORCA_CONFIG_FILE; the repository settings belong to the user and the master session."
     [ "$ftop" = "$own" ] && exit 0
     if [ -n "$same" ] || orca_scoped "$ftop"; then
       deny "A child worktree session edits only its own worktree ($own), not $ftop."
@@ -186,7 +203,11 @@ Edit|MultiEdit|Write|NotebookEdit)
   rel=${f#"$repo"/}
   # Documentation: any tool, any size.
   case "$rel" in .claude/*|references/*|docs/*|*.md) exit 0 ;; esac
-  limit="Implementation happens in a child worktree (orca worktree create). This main checkout allows documentation (*.md, docs/, references/, .claude/) at any size; other files Edit only, at most 2 files and 20 changed lines uncommitted in total. Documentation-only commits go directly on the base branch and push; a commit with any non-documentation file goes on a task branch, never directly on the base branch."
+  orca_config_load "$repo"
+  maxf=$(orca_config .limits.smallChangeFiles) maxl=$(orca_config .limits.smallChangeLines)
+  [ "$maxf" = 1 ] && files=file || files=files
+  [ "$maxl" = 1 ] && lines=line || lines=lines
+  limit="Implementation happens in a child worktree (orca worktree create). This main checkout allows documentation (*.md, docs/, references/, .claude/) at any size; other files Edit only, at most $maxf $files and $maxl changed $lines uncommitted in total (limits.smallChangeFiles, limits.smallChangeLines). Documentation-only commits go directly on the base branch and push; a commit with any non-documentation file goes on a task branch, never directly on the base branch.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}"
   case "$tool" in Edit|MultiEdit) ;; *) deny "$limit" ;; esac
   # Lines this edit changes; empty when any edit uses replace_all.
   n=$(printf '%s' "$input" | jq '[(.tool_input.edits // [.tool_input]) | .[] | select(.replace_all != true) | [.old_string, .new_string] | map(. // "" | split("\n") | length) | max] as $n | if ($n | length) == ((.tool_input.edits // [.tool_input]) | length) then ($n | add // 0) else empty end')
@@ -200,12 +221,12 @@ Edit|MultiEdit|Write|NotebookEdit)
     existing= untracked=
   fi
   # Non-doc files: per-file max(added, deleted), binary ("-") is over the limit.
-  fits=$(printf '%s\n%s\n%s\t0\t%s\n' "$existing" "$untracked" "$n" "$rel" | awk -F '\t' '
+  fits=$(printf '%s\n%s\n%s\t0\t%s\n' "$existing" "$untracked" "$n" "$rel" | awk -F '\t' -v maxf="$maxf" -v maxl="$maxl" '
     NF < 3 || $3 ~ /^(\.claude|references|docs)\// || $3 ~ /\.md$/ { next }
-    { c = ($1 == "-" || $2 == "-") ? 21 : ($1 + 0 > $2 + 0 ? $1 + 0 : $2 + 0)
+    { c = ($1 == "-" || $2 == "-") ? maxl + 1 : ($1 + 0 > $2 + 0 ? $1 + 0 : $2 + 0)
       if (!($3 in seen)) { seen[$3] = 1; files++ }
       total += c }
-    END { print (files <= 2 && total <= 20) ? "yes" : "no" }')
+    END { print (files <= maxf + 0 && total <= maxl + 0) ? "yes" : "no" }')
   [ "$fits" = yes ] && exit 0
   deny "$limit"
   ;;

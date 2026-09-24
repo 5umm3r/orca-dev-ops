@@ -16,10 +16,13 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
 | `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
 | `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
-| `hooks/orca-lib.sh` | Shared functions for role detection |
+| `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
 | `commands/orca-init.md` | The `/orca-init` slash command |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
+| `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
+| `scripts/orca-wait.sh` | Coordinator wait: wakes on actionable mail, acknowledges heartbeat- and status-only batches and keeps the statuses |
+| `docs/config.md` | Reference for the repository settings file |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
 
 The hooks are launched through `${CLAUDE_PLUGIN_ROOT}` and resolve
@@ -57,6 +60,16 @@ Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification
 commands, are added by hand outside the markers.
 
+## Settings
+
+A repository can place an optional `.orca-dev-ops.json` at its top level to
+choose the launch mode (`ask`: questions before every launch, the default;
+`auto`: a fixed agent, model, and effort without questions), the worktree and
+small-change limits, and the coordinator's wait. It is read from the main
+checkout only, and an invalid file is ignored with a warning. Without it,
+behavior is unchanged. See [docs/config.md](docs/config.md);
+`scripts/orca-config.sh show` prints the effective settings.
+
 ## Prerequisites
 
 - The `orca` CLI is on the `PATH`.
@@ -85,7 +98,7 @@ Codex hooks are kept.
 - Children are started as dispatched workers through
   `orca orchestration worker-start --terminal`. Fixes for review findings are
   handed over as a new Dispatch.
-- Before every child launch, the coordinator asks the user one question each
+- In launch mode `ask` (the default, see "Settings"), before every child launch, the coordinator asks the user one question each
   about the child's agent, model, and effort (headers `Agent`, `Model`,
   `Effort`). The launch gate reads the session transcript and blocks the launch
   until those answers exist after the last successful launch; a failed launch

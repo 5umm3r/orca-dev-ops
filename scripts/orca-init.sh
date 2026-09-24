@@ -42,6 +42,11 @@
 # At the end, reminds that Codex asks the user to trust new or changed hooks
 # once at its next start.
 #
+# Repository settings: .orca-dev-ops.json (in the main checkout) is optional
+# and never created or modified; when present it is validated first, and an
+# invalid file is reported on stderr (the hooks ignore it and use the
+# built-in defaults) without changing the exit code.
+#
 # Exit codes: 0 ok; 2 .claude/CLAUDE.md needs confirmation (no marker, no
 # --apply); 3 .codex/hooks.json needs confirmation (no gate entry, no
 # --apply); 64 unknown option; 65 not a git repository; 66 template or
@@ -70,6 +75,15 @@ REPO=$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null) || {
 for _h in orca-launch-gate.sh orca-lib.sh; do
   [ -f "$ROOT/hooks/$_h" ] || { echo "plugin hook not found: $ROOT/hooks/$_h" >&2; exit 66; }
 done
+
+# Repository settings (.orca-dev-ops.json in the main checkout): optional, never created or
+# modified here; only validated and reported. A problem does not change the exit code.
+. "$ROOT/hooks/orca-lib.sh"
+orca_config_load "$REPO" || :
+case "$ORCA_CONFIG_STATE" in
+  valid) echo "settings: $ORCA_CONFIG_PATH is valid" ;;
+  invalid) echo "INVALID SETTINGS: $ORCA_CONFIG_ERROR Fix it by hand (see docs/config.md in the plugin); it was left unchanged." >&2 ;;
+esac
 
 # A marker line is a line that STARTS with the marker text (index($0,m)==1),
 # never a mid-line mention. marker_state and replace_block share this exact

@@ -12,13 +12,19 @@
 # `[Effort]`. A failed launch does not reset that window. Missing or unreadable transcripts and
 # unknown transcript formats are denied. Allow is silent; deny is the hookSpecificOutput JSON,
 # which Claude and Codex both honor (never `allow` or `ask`: Codex fails open on those).
+# With launch mode `auto` in the repository's .orca-dev-ops.json (read from the main checkout,
+# see orca-lib.sh), no transcript is read: every launch in the command is allowed only when its
+# agent, model, and effort equal launch.agent, launch.model, and launch.effort; a mismatch or a
+# value the command does not set is denied. An invalid settings file means mode `ask`.
 # Misoperation prevention by string matching, not a sandbox.
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/orca-lib.sh"
 input=$(cat)
 [ "$(printf '%s' "$input" | jq -r '.tool_name // empty')" = Bash ] || exit 0
 
+# Settings warning appended to every deny (set once the settings are loaded).
+warn=
 deny() {
-  jq -n --arg r "[orca-launch-gate] $1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  jq -n --arg r "[orca-launch-gate] $1$warn" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
 }
 how='Ask the user now with a structured question tool: AskUserQuestion in Claude Code, request_user_input or request_user_input_async in Codex. Ask one question each with header `Agent` (claude or codex), `Model`, and `Effort`; request_user_input_async has no header, so start each title with `[Agent]`, `[Model]`, `[Effort]` instead. Put the recommended option first with a label ending in "(Recommended)"; values the user already named in the request are that recommended option. Never infer or pick the values yourself, and do not retry the launch until the user has answered.'
@@ -95,12 +101,79 @@ is_launch() {
   done | grep -q yes
 }
 
+us=$(printf '\037')
+# launch_params <command>: "<agent>\037<model>\037<effort>" for every launch that is_launch
+# detects in <command>; a value the launch does not set is empty. Claude: --model, --effort;
+# Codex: -m/--model and -c/--config model_reasoning_effort=<v>; worker-start: --agent, --model,
+# --effort. Both `--flag value` and `--flag=value`; the last occurrence wins.
+launch_params() {
+  printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix"'
+    if (w != "orca") next
+    if ($(i + 1) == "terminal" && $(i + 2) == "create") {
+      for (j = i + 3; j <= NF; j++) {
+        v = ""
+        if ($j == "--command" && j < NF) { v = $(j + 1); j++ }
+        else if ($j ~ /^--command=/) v = substr($j, 11)
+        else continue
+        gsub(/\n/, " ", v); print "C", v
+      }
+    } else if ($(i + 1) == "orchestration" && $(i + 2) == "worker-start") {
+      agent = model = effort = ""; has = 0; term = 0
+      for (j = i + 3; j <= NF; j++) {
+        if ($j == "--agent" || $j ~ /^--agent=/) has = 1
+        if ($j == "--terminal" || $j ~ /^--terminal=/) term = 1
+        if ($j ~ /^--(agent|model|effort)$/ && j < NF) { k = substr($j, 3); v = $(j + 1); j++ }
+        else if ($j ~ /^--(agent|model|effort)=/) { k = substr($j, 3, index($j, "=") - 3); v = substr($j, index($j, "=") + 1) }
+        else continue
+        if (k == "agent") agent = v; else if (k == "model") model = v; else effort = v
+      }
+      if (has && !term) print "L", agent, model, effort
+    }
+  }' | while IFS= read -r _l; do
+    case "$_l" in
+    "L$us"*) printf '%s\n' "${_l#L"$us"}" ;;
+    # The --command value is itself a shell command: every simple command in it that runs claude or codex.
+    *) printf '%s\n' "${_l#C"$us"}" | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix"'
+      if (w != "claude" && w != "codex") next
+      model = effort = ""
+      for (j = i + 1; j <= NF; j++) {
+        t = $j; c = ""
+        if (t == "--model" || (w == "codex" && t == "-m")) { if (j < NF) model = $(++j) }
+        else if (t ~ /^--model=/) model = substr(t, 9)
+        else if (w == "claude" && t == "--effort") { if (j < NF) effort = $(++j) }
+        else if (w == "claude" && t ~ /^--effort=/) effort = substr(t, 10)
+        else if (w == "codex" && (t == "-c" || t == "--config")) { if (j < NF) c = $(++j) }
+        else if (w == "codex" && t ~ /^--config=/) c = substr(t, 10)
+        if (c ~ /^model_reasoning_effort=/) {
+          effort = substr(c, 24)
+          if (effort ~ /^".*"$/ || effort ~ /^\047.*\047$/) effort = substr(effort, 2, length(effort) - 2)
+        }
+      }
+      print w, model, effort }' ;;
+    esac
+  done
+}
+
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 is_launch "$cmd" || exit 0
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 # Out of scope: this repository did not opt into the Orca worktree rules. A child is gated as
 # well: it never launches agents.
 [ "$(orca_role "$cwd")" = none ] && exit 0
+
+orca_config_load "$cwd"
+[ -n "$ORCA_CONFIG_ERROR" ] && warn=" Settings warning: $ORCA_CONFIG_ERROR"
+want_agent=$(orca_config .launch.agent) want_model=$(orca_config .launch.model) want_effort=$(orca_config .launch.effort)
+if [ "$(orca_config .launch.mode)" = auto ]; then
+  bad=$(launch_params "$cmd" | awk -F "$us" -v a="$want_agent" -v m="$want_model" -v e="$want_effort" '
+    { n++; if ($1 != a || $2 != m || $3 != e) { printf "agent %s, model %s, effort %s", ($1 == "" ? "(unset)" : $1), ($2 == "" ? "(unset)" : $2), ($3 == "" ? "(unset)" : $3); exit } }
+    END { if (!n) printf "no agent, model, or effort that could be read" }')
+  [ -z "$bad" ] && exit 0
+  deny "Blocked a child agent launch: this repository's $ORCA_CONFIG_FILE ($ORCA_CONFIG_PATH) sets launch mode auto, which allows only agent $want_agent, model $want_model, and effort $want_effort, and this launch has $bad. Launch with exactly those values (Claude: --model $want_model --effort $want_effort; Codex: -m $want_model -c model_reasoning_effort=$want_effort; worker-start: --agent $want_agent --model $want_model --effort $want_effort). To use other values, ask the user; do not edit $ORCA_CONFIG_FILE to get around this."
+fi
+if [ -n "$want_agent$want_model$want_effort" ]; then
+  how="$how This repository's $ORCA_CONFIG_FILE recommends${want_agent:+ agent $want_agent}${want_model:+ model $want_model}${want_effort:+ effort $want_effort}: make those the (Recommended) options."
+fi
 
 transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
 current=$(printf '%s' "$input" | jq -r '.tool_use_id // empty')

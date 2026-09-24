@@ -121,4 +121,58 @@ broken="$tmp/broken"; marker "$broken"; printf 'gitdir: %s\n' "$tmp/nowhere" > "
 check "unknown role: launch without answers denies" deny "$(input "$create" "$none" "$broken")"
 check "unknown role: launch with answers allows" allow "$(input "$create" "$all" "$broken")"
 
+# --- .orca-dev-ops.json launch mode auto: the launch must name the configured values
+cfg="$repo/.orca-dev-ops.json"
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-opus-5-5","effort":"high"}}' > "$cfg"
+ok='orca terminal create --worktree name:cc-x --title agent --command "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort high" --json'
+check "auto: matching launch allows without answers" allow "$(input "$ok" "$none")"
+check "auto: matching launch allows without a transcript" allow "$(input "$ok" '')"
+check "auto: --flag=value spelling allows" allow "$(input 'orca terminal create --command "claude --model=claude-opus-5-5 --effort=high"' '')"
+check "auto: matching worker-start allows" allow "$(input 'orca orchestration worker-start --task t --agent claude --model claude-opus-5-5 --effort high' '')"
+check "auto: worker-start with = allows" allow "$(input 'orca orchestration worker-start --agent=claude --model=claude-opus-5-5 --effort=high' '')"
+check "auto: other model denies" deny "$(input 'orca terminal create --command "claude --model claude-sonnet-5 --effort high"' "$all")"
+check "auto: other effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5 --effort max"' "$all")"
+check "auto: missing effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5"' "$all")"
+check "auto: other agent denies" deny "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$all")"
+check "auto: worker-start other effort denies" deny "$(input 'orca orchestration worker-start --agent claude --model claude-opus-5-5 --effort=max' "$all")"
+check "auto: worker-start without model denies" deny "$(input 'orca orchestration worker-start --agent claude --effort high' "$all")"
+check "auto: second launch mismatching denies" deny "$(input "$ok && orca terminal create --command 'claude --model x --effort high'" "$all")"
+msg=$(reason "$(input 'orca terminal create --command "claude --model claude-sonnet-5"' '')")
+has "auto: reason names the expected values" "$msg" "agent claude, model claude-opus-5-5, and effort high"
+has "auto: reason names the launch's values" "$msg" "agent claude, model claude-sonnet-5, effort (unset)"
+has "auto: reason forbids editing the file" "$msg" "do not edit .orca-dev-ops.json"
+check "auto: not a launch still passes" allow "$(input 'git status' '')"
+
+printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"}}' > "$cfg"
+codex_cmd='codex -a never -s workspace-write --add-dir /x -c sandbox_workspace_write.network_access=true'
+check "auto codex: -m and -c allow" allow "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol -c model_reasoning_effort=xhigh\"" '')"
+check "auto codex: --model and --config allow" allow "$(input "orca terminal create --command \"$codex_cmd --model gpt-sol --config model_reasoning_effort=xhigh\"" '')"
+check "auto codex: quoted TOML effort allows" allow "$(input "orca terminal create --command '$codex_cmd -m gpt-sol -c model_reasoning_effort=\"xhigh\"'" '')"
+check "auto codex: other model denies" deny "$(input "orca terminal create --command \"$codex_cmd -m gpt-other -c model_reasoning_effort=xhigh\"" "$all")"
+check "auto codex: missing effort denies" deny "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol\"" "$all")"
+check "auto codex: claude denies" deny "$(input 'orca terminal create --command "claude --model gpt-sol --effort xhigh"' "$all")"
+
+# Invalid settings: mode ask with the warning in the deny.
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-opus-5-5"}}' > "$cfg"
+check "invalid config: matching launch without answers denies" deny "$(input "$ok" "$none")"
+msg=$(reason "$(input "$ok" "$none")")
+has "invalid config: deny carries the warning" "$msg" "Settings warning: Ignored $cfg"
+check "invalid config: answers allow" allow "$(input "$ok" "$all")"
+
+# Mode ask with recommended values: still asks, the deny names the recommendation.
+printf '%s\n' '{"launch":{"agent":"codex","model":"gpt-sol","effort":"high"}}' > "$cfg"
+check "ask with recommendations: no answers denies" deny "$(input "$ok" "$none")"
+has "ask with recommendations: reason names them" "$(reason "$(input "$ok" "$none")")" "recommends agent codex model gpt-sol effort high"
+check "ask with recommendations: answers allow" allow "$(input "$ok" "$all")"
+
+# Read from the main checkout, never from the session's worktree.
+rm -f "$cfg"
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-opus-5-5","effort":"high"}}' > "$child/.orca-dev-ops.json"
+check "worktree copy: ignored from the worktree" deny "$(input "$ok" "$none" "$child")"
+check "worktree copy: ignored from the main checkout" deny "$(input "$ok" "$none")"
+cp "$child/.orca-dev-ops.json" "$cfg"
+printf '%s\n' '{"launch":{"mode":"ask"}}' > "$child/.orca-dev-ops.json"
+check "main checkout's auto applies in the worktree" allow "$(input "$ok" "$none" "$child")"
+rm -f "$cfg" "$child/.orca-dev-ops.json"
+
 exit "$fail"

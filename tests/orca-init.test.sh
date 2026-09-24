@@ -262,6 +262,28 @@ for bad in '{"hooks": ' '[]' '{"hooks": {"PreToolUse": {}}}'; do
   result "codex malformed ($bad): message" 1 "$(count '^BROKEN JSON: \.codex/hooks\.json')"
 done
 
+# --- repository settings (.orca-dev-ops.json): never created, validated when present ---
+r="$tmp/settings"; new_repo "$r"
+run "$r"
+result "settings absent: exit 0" 0 "$rc"
+result "settings absent: not created" no "$([ -e "$r/.orca-dev-ops.json" ] && echo yes || echo no)"
+result "settings absent: nothing reported" 0 "$(count 'settings')"
+printf '%s\n' '{"limits":{"maxWorktrees":2}}' > "$r/.orca-dev-ops.json"
+run "$r"
+result "settings valid: exit 0" 0 "$rc"
+result "settings valid: reported" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
+bad='{"launch":{"mode":"auto"},"extra":1}'
+printf '%s\n' "$bad" > "$r/.orca-dev-ops.json"
+run "$r"
+result "settings invalid: exit code unchanged" 0 "$rc"
+result "settings invalid: reported" 1 "$(count '^INVALID SETTINGS: Ignored .*unknown key extra; launch.mode "auto" needs agent, model, and effort')"
+result "settings invalid: file unchanged" "$bad" "$(cat "$r/.orca-dev-ops.json")"
+git -C "$r" worktree add -q -b t "$tmp/settings-task" || exit 1
+printf '{bad\n' > "$tmp/settings-task/.orca-dev-ops.json"
+run "$tmp/settings-task"
+result "settings from a worktree: the main checkout's file is checked" 1 "$(count "^INVALID SETTINGS: Ignored $r/\.orca-dev-ops\.json")"
+result "settings from a worktree: its own copy is not" 0 "$(count 'not valid JSON')"
+
 # --- repo path with spaces ---
 r="$tmp/repo with spaces"; new_repo "$r"
 run "$r"

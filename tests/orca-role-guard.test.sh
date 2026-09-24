@@ -242,4 +242,53 @@ check "Orca main vs git linked: Write own" deny "$(write "$tmp/liar/x.md" "$tmp/
 check "Orca main vs git linked: git commit" deny "$(run 'git commit -m x' "$tmp/liar")"
 check "Orca linked vs git main: Write README" deny "$(write "$liar_main/README.md" "$liar_main")"
 
+# --- .orca-dev-ops.json limits (read from the main checkout)
+# The main repo already has 3 task worktrees (child, sibling, liar): the default limit is reached.
+check "maxWorktrees default 3 reached: orca worktree create" deny "$(run 'orca worktree create --name cc-x --json' "$repo")"
+has() { result "$1" yes "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
+has "maxWorktrees reached: message" "$(reason "$(run 'orca worktree create --name cc-x' "$repo")")" "already has 3 task worktree(s) and the limit is 3"
+check "maxWorktrees reached: orca worktree list passes" allow "$(run 'orca worktree list --json' "$repo")"
+check "maxWorktrees reached: create only mentioned passes" allow "$(run 'echo "orca worktree create"' "$repo")"
+
+lim="$tmp/lim repo"; mkdir -p "$lim/src"; lines 30 > "$lim/src/a.sh"; lines 30 > "$lim/src/b.sh"; marker "$lim"
+printf '%s\n' '{"limits":{"maxWorktrees":1,"smallChangeFiles":1,"smallChangeLines":5}}' > "$lim/.orca-dev-ops.json"
+new_repo "$lim"; orca_knows "$lim" main
+# setcfg <json>: commits <json> as the lim repo's settings, so it is not an uncommitted change.
+setcfg() { printf '%s\n' "$1" > "$lim/.orca-dev-ops.json" && git -C "$lim" add .orca-dev-ops.json && git -C "$lim" commit -q -m cfg; }
+edit_in() { jq -n --arg cwd "$1" --arg f "$2" --arg s "$(lines "$3")" '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:$f,old_string:"line 1",new_string:$s}}'; }
+check "custom limit: Edit 5 lines allows" allow "$(edit_in "$lim" "$lim/src/a.sh" 5)"
+check "custom limit: Edit 6 lines denies" deny "$(edit_in "$lim" "$lim/src/a.sh" 6)"
+has "custom limit: message names the limits" "$(reason "$(edit_in "$lim" "$lim/src/a.sh" 6)")" "at most 1 file and 5 changed lines"
+awk 'NR == 1 { print "changed"; next } { print }' "$lim/src/a.sh" > "$tmp/x" && mv "$tmp/x" "$lim/src/a.sh"
+check "custom limit: second file denies" deny "$(edit_in "$lim" "$lim/src/b.sh" 1)"
+check "custom limit: same file allows" allow "$(edit_in "$lim" "$lim/src/a.sh" 1)"
+git -C "$lim" checkout -q -- src/a.sh
+check "maxWorktrees 1, none yet: create allows" allow "$(run 'orca worktree create --name cc-x' "$lim")"
+git -C "$lim" worktree add -q -b t1 "$tmp/lim-task" || exit 1
+check "maxWorktrees 1 reached: create denies" deny "$(run 'cd x && orca worktree create --name cc-y' "$lim")"
+printf '%s\n' '{"limits":{"maxWorktrees":2}}' > "$tmp/lim-task/.orca-dev-ops.json"
+check "maxWorktrees: the worktree's copy is ignored" deny "$(run 'orca worktree create --name cc-y' "$lim")"
+setcfg '{"limits":{"maxWorktrees":2}}'
+check "maxWorktrees 2, one task worktree: create allows" allow "$(run 'orca worktree create --name cc-y' "$lim")"
+export ORCA_STUB=fail
+check "count failure (Orca down): create denies" deny "$(run 'orca worktree create --name cc-y' "$lim")"
+has "count failure: message" "$(reason "$(run 'orca worktree create --name cc-y' "$lim")")" "Could not count this repository's task worktrees"
+unset ORCA_STUB
+export ORCA_STUB_WORKTREE_LIST=truncated
+check "count failure (truncated list): create denies" deny "$(run 'orca worktree create --name cc-y' "$lim")"
+unset ORCA_STUB_WORKTREE_LIST
+setcfg '{"limits":{"maxWorktrees":0}}'
+check "invalid config: default limit 3 applies" allow "$(run 'orca worktree create --name cc-y' "$lim")"
+check "invalid config: default small-change limit applies" allow "$(edit_in "$lim" "$lim/src/a.sh" 20)"
+has "invalid config: deny carries the warning" "$(reason "$(edit_in "$lim" "$lim/src/a.sh" 21)")" "Settings warning: Ignored $lim/.orca-dev-ops.json"
+git -C "$lim" rm -q .orca-dev-ops.json && git -C "$lim" commit -q -m cfg
+check "no config: default small-change limit applies" allow "$(edit_in "$lim" "$lim/src/a.sh" 20)"
+
+# A child never edits .orca-dev-ops.json, not even its own copy.
+check "child Write own .orca-dev-ops.json" deny "$(write "$child/.orca-dev-ops.json" "$child")"
+check "child Write own .orca-dev-ops.json, relative" deny "$(write .orca-dev-ops.json "$child")"
+check "child Edit own .orca-dev-ops.json" deny "$(jq -n --arg cwd "$child" --arg f "$child/.orca-dev-ops.json" '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:$f,old_string:"a",new_string:"b"}}')"
+check "child Write .orca-dev-ops.json in a subdirectory" allow "$(write "$child/sub/.orca-dev-ops.json" "$child")"
+check "master Edit .orca-dev-ops.json within the limits" allow "$(edit_in "$lim" "$lim/.orca-dev-ops.json" 3)"
+
 exit "$fail"

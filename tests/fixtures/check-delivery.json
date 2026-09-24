@@ -1,0 +1,34 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "ok": true,
+  "result": {
+    "runId": "run_stub",
+    "deliveryId": "dlv_stub",
+    "messages": [
+      {
+        "id": "msg_stub",
+        "run_id": "run_stub",
+        "from_handle": "term_child",
+        "to_handle": "term_coordinator",
+        "subject": "stub message",
+        "body": "stub body",
+        "type": "status",
+        "priority": "normal",
+        "payload": "{\"taskId\":\"task_stub\",\"dispatchId\":\"ctx_stub\"}"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "00000000-0000-0000-0000-000000000002",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-0000-0000-000000000001"
+  }
+}

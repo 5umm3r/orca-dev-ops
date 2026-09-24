@@ -24,7 +24,7 @@ only the sections the task needs (the full orchestration guide is about
 | Step | Who | How |
 |---|---|---|
 | Plan with the user | master | Hearing, spec, file scope, acceptance tests |
-| Choose agent (claude or codex), model, and effort | user | Asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named are the "(Recommended)" option; the launch gate hook blocks a launch without the answers |
+| Choose agent (claude or codex), model, and effort | user | Launch mode `ask` (default): asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named, else the settings' `launch` values, are the "(Recommended)" option; the launch gate hook blocks a launch without the answers. Launch mode `auto`: the user chose them once in `.orca-dev-ops.json`; no questions, and the gate allows only those values (see "Repository settings") |
 | Implement and test | child worktree | Started per "Starting a child" below, changes left uncommitted |
 | Control the child | master only | See "Communication and state"; never hand approval or follow-ups to the user |
 | Final review | master | See "Review, integration, cleanup" |
@@ -39,8 +39,10 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   current --json` with a git fallback; if the checkout is in scope but the
   role can't be determined, it blocks edits and mutating commands rather than
   guessing. In the master checkout it limits direct Write/Edit to the "Small
-  changes" limits below and blocks editing child worktrees and raw `git
-  worktree add/remove`. In child sessions it blocks commit/push/merge/rebase,
+  changes" limits below, blocks `orca worktree create` at the "Limits"
+  worktree count (and when the count cannot be determined), and blocks
+  editing child worktrees and raw `git worktree add/remove`. In child
+  sessions it blocks editing `.orca-dev-ops.json`, commit/push/merge/rebase,
   worktree create/rm/set, `orca terminal` create/close/send/split, most
   `orca orchestration` verbs (only `ask`/`send`/`check`/`reply` and the
   read-only ones are allowed), edits outside the own worktree, and a set of
@@ -51,7 +53,7 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sandbox, and Claude sessions only — Codex is limited by its own sandbox
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
-- `orca-launch-gate.sh` (PreToolUse, Bash) blocks a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`) until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question. A missing or unrecognized transcript is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
+- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch mode `auto` it reads no transcript and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
 Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
 ## Repository setup
@@ -77,6 +79,29 @@ entry needs confirmation (`--apply`) and keeps its other hooks. Codex asks the
 user once to trust new or changed hooks at its next start; until then the gate
 does not run there.
 
+## Repository settings
+
+A repository can tune this workflow with an optional `.orca-dev-ops.json` at
+its top level (full reference: `docs/config.md` in the plugin): `launch`
+(mode `ask` or `auto`, plus `agent`, `model`, `effort`), `limits`
+(`maxWorktrees`, `smallChangeFiles`, `smallChangeLines`), and `monitor`
+(`wakeOnStatus`, `timeoutMs`). Without the file, the built-in defaults apply,
+which are the behavior this skill describes (launch mode `ask`, 3 worktrees,
+2 files and 20 lines, 590000 ms). The hooks and scripts read it from the main
+checkout only, never from a child worktree. An invalid file is ignored as a
+whole (defaults, launch mode `ask`) with a warning in the session context and
+in every deny.
+
+Once per session, before the first launch, run the plugin's
+`scripts/orca-config.sh show` (resolved the same way as `orca-base-ref.sh` in
+"Invariants") in the repository: it prints the effective settings, and stderr
+names the source file and any validation error (exit 3 when invalid). Report
+an invalid file to the user. The settings belong to the user: never edit
+`.orca-dev-ops.json` to get past a limit or the launch gate, and never add
+keys for the invariants below (approval, sandbox, and network flags,
+`--dangerously-skip-permissions`, trust prompts, the base ref, fast-forward
+integration, `--force`); the loader rejects unknown keys.
+
 ## Invariants
 
 - The base ref is whatever the plugin's `scripts/orca-base-ref.sh <repo>`
@@ -93,7 +118,9 @@ does not run there.
 
 ## Limits
 
-- At most 3 task worktrees at once. Do not start another while at the limit.
+- At most `limits.maxWorktrees` task worktrees at once (default 3). Do not
+  start another while at the limit; the guard blocks `orca worktree create`
+  at the limit, and also when `orca worktree list` cannot give the count.
 - Remove a worktree promptly once the removal conditions in "Review,
   integration, cleanup" hold.
 
@@ -149,16 +176,23 @@ For Codex, use `--command "codex -a never -s workspace-write --add-dir
   display name. Check the grade -> effort mapping below against the chosen
   model; if the requested value is invalid for that model, stop and ask —
   never substitute silently.
-- Always ask for the agent, model, and effort after plan approval, before
-  every launch, even when the user already named them: one question each with
-  header `Agent`, `Model`, and `Effort` (AskUserQuestion in Claude,
-  `request_user_input` in Codex; the async `request_user_input_async` has no
-  header, so start each title with `[Agent]`, `[Model]`, `[Effort]`). Put the
-  recommended option first with a label ending in "(Recommended)"; values the
-  user already named are that option. Never infer or pick the values yourself.
-  The launch gate hook blocks a launch until these answers exist in this
-  session after the last successful launch; retrying a failed launch needs no
-  new question.
+- Launch mode `ask` (the default, and whenever the settings file is missing
+  or invalid): always ask for the agent, model, and effort after plan
+  approval, before every launch, even when the user already named them: one
+  question each with header `Agent`, `Model`, and `Effort` (AskUserQuestion
+  in Claude, `request_user_input` in Codex; the async
+  `request_user_input_async` has no header, so start each title with
+  `[Agent]`, `[Model]`, `[Effort]`). Put the recommended option first with a
+  label ending in "(Recommended)"; values the user already named are that
+  option, otherwise the settings' `launch.agent`/`model`/`effort` when set.
+  Never infer or pick the values yourself. The launch gate hook blocks a
+  launch until these answers exist in this session after the last successful
+  launch; retrying a failed launch needs no new question.
+- Launch mode `auto`: do not ask; launch with exactly the configured
+  `launch.agent`, `launch.model`, and `launch.effort` (the effort mapping
+  below does not apply; the value is passed as is). The gate denies any other
+  value. If the task needs different values, ask the user (with the questions
+  above) and have them change the settings; do not work around the gate.
 - After start, compare requested vs effective settings. With `--terminal`,
   `worker-start` reports `launch.effective` as null, so confirm from the
   child's screen header instead (Claude: the model line; Codex: the status
@@ -212,19 +246,22 @@ workflow's choices and what live tests showed.
   message whose payload dispatchId is not the active Dispatch.
 - Monitoring must match what this coordinator session can actually do:
   - Claude Code: arm a background
-    `orca orchestration check --run <run_id> --wait --types "worker_done,escalation,question" --timeout-ms <n> --json 2>/dev/null`
-    whose completion re-invokes the session. `--types` only narrows when the
-    waiter wakes and is not reliable: a heartbeat alone can end the wait
-    (see "Known constraints"). When a wait returns, read what arrived — the
-    wait's own result, or `orca orchestration check --run <run_id> --json`
-    (no `--wait`) for the whole Delivery. If the batch holds only
-    heartbeats, `--ack` it and re-arm. Otherwise handle every message
-    (including queued `status`), `--ack` its deliveryId, then re-arm. When
-    reading the `--json` output of `check --wait`, drop the keepalive lines
-    and take the final object, e.g.
-    `jq -s 'map(select(._keepalive | not)) | last'`. Use a short timeout for
-    the first wait after a start, so the first `status` is read without
-    waiting for `worker_done`.
+    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-wait.sh" --run <run_id>` (the
+    plugin's `scripts/orca-wait.sh`, resolved the same way as
+    `orca-base-ref.sh` in "Invariants") whose completion re-invokes the
+    session. It wraps `check --wait` (`--types` alone is not reliable: a
+    heartbeat can end the wait, see "Known constraints"): it acknowledges
+    batches of only heartbeats and statuses and keeps waiting, and exits 0
+    with `{"delivery": ..., "deferred": [...]}` on a Delivery that holds a
+    `worker_done`, `escalation`, `question`, or another type, 2 on timeout
+    (`delivery` null), 1 on an Orca error. `deferred` holds the `status`
+    messages it already acknowledged; read them, they are not delivered
+    again. The returned Delivery is not acknowledged: handle every message in
+    it, `--ack` its deliveryId (e.g. `orca orchestration check --run <run_id>
+    --ack <deliveryId> --json`), then re-arm. The timeout and whether status
+    wakes come from `monitor` in the settings (default 590000 ms, statuses
+    deferred). The first wait after a start uses `--wake-on-status`, so the
+    first `status` is read without waiting for `worker_done`.
   - An agent without background re-invocation (e.g. Codex): the same
     `check --wait --types ...` in the foreground with a timeout below its
     tool-call limit, repeated while the turn lasts; when the turn must end,
@@ -279,7 +316,7 @@ agent session in the same task.
 Direct edits in the master checkout are allowed within these limits (the PreToolUse guard enforces them):
 
 - Documentation (`*.md` at any depth, `docs/`, `references/`, `.claude/`): any tool, any size.
-- Other files: Edit or MultiEdit only (no Write), at most 2 files and 20 changed lines of uncommitted non-documentation change in total, counting existing uncommitted and untracked files.
+- Other files: Edit or MultiEdit only (no Write), at most `limits.smallChangeFiles` files (default 2) and `limits.smallChangeLines` changed lines (default 20) of uncommitted non-documentation change in total, counting existing uncommitted and untracked files.
 
 Conditions: the change does not overlap an active child's declared scope, and
 the master runs the repository's required verification before committing.

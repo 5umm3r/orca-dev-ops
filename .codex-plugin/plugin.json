@@ -1,6 +1,6 @@
 {
   "name": "orca-dev-ops",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Orca-managed worktree workflow and coordination rules for Codex, provided as a skill only (no hooks; use the Codex sandbox flags and the repository's AGENTS.md for guardrails).",
   "author": {
     "name": "5umm3r"

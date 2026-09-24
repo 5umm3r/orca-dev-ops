@@ -54,7 +54,7 @@ commands, are added by hand outside the markers.
 
 What is Orca: Orca is the multi-agent app that manages worktrees and agent
 terminals; this plugin drives its `orca` CLI. The skill was verified with
-Orca 1.4.206 (see "Known constraints" in `skills/orca-dev-ops/SKILL.md`).
+Orca 1.4.206 and 1.4.209 (see "Known constraints" in `skills/orca-dev-ops/SKILL.md`).
 
 ## Upgrading
 
@@ -62,13 +62,11 @@ When a plugin update changes the worktree-rules template, run `/orca-init`
 again in every repository that uses it. Only the marker block is replaced;
 content outside the markers is kept.
 
-## Migrating to v2.0.0
+## How it behaves
 
-- After updating the plugin, run `/orca-init` again in every repository you
-  want guarded. Scope is now decided only by whether `.claude/CLAUDE.md` or
-  `AGENTS.md` has a marker block. Repositories without the marker are no
-  longer restricted. Conversely, when the role cannot be determined inside
-  the scope, sessions used to run unrestricted; write operations are now
+- The hooks act only in repositories whose `.claude/CLAUDE.md` or `AGENTS.md`
+  has the marker block; repositories without it are not restricted. Inside
+  that scope, when the role cannot be determined, write operations are
   blocked (fail closed).
 - The integration target (integration ref) is the value returned by
   `scripts/orca-base-ref.sh` (Orca's base ref, or the remote HEAD if there is

@@ -10,7 +10,7 @@
       "name": "orca-dev-ops",
       "source": "./",
       "category": "workflow",
-      "description": "Orca マスター/子ワークツリー開発フローの手順・ガードフック・リポジトリ初期化コマンド一式。"
+      "description": "Orca-managed coordinator/child worktree workflow: the coordinator skill, role guard hooks, and a repository init command."
     }
   ]
 }

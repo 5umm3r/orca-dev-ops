@@ -5,6 +5,9 @@
   "author": {
     "name": "5umm3r"
   },
+  "homepage": "https://github.com/5umm3r/orca-dev-ops",
+  "repository": "https://github.com/5umm3r/orca-dev-ops",
+  "license": "MIT",
   "skills": "./skills/",
   "interface": {
     "displayName": "Orca Dev Ops",

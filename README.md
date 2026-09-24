@@ -1,65 +1,86 @@
+English | [日本語](README.ja.md)
+
 # orca-dev-ops
 
-Orca(Orca CLI) を使った複数デバイス開発のマスターセッション手順を、Claude Code プラグイン  
-として配布するリポジトリ。計画を親ワークツリー、実装を Claude / Codex の任意の子ワークツリーに委ねる分業を前提とする。
+A repository that distributes, as a Claude Code plugin, the master-session
+procedure for multi-device development with Orca (the Orca CLI). It assumes a
+division of work: planning happens in the parent worktree, and implementation
+is delegated to child worktrees running either Claude or Codex.
 
-## 構成
+## Layout
 
+| Path | Role |
+| --- | --- |
+| `skills/orca-dev-ops/SKILL.md` | The master-session procedure itself |
+| `hooks/orca-role-context.sh` | SessionStart. Tells the session whether it is the master or a child |
+| `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
+| `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
+| `hooks/orca-lib.sh` | Shared functions for role detection |
+| `commands/orca-init.md` | The `/orca-init` slash command |
+| `scripts/orca-init.sh` | Script that installs the worktree rules |
+| `templates/worktree-rules.md` | The generic rules block that gets installed |
 
-| パス                                                       | 役割                                           |
-| -------------------------------------------------------- | -------------------------------------------- |
-| `skills/orca-dev-ops/SKILL.md`                           | マスターセッションの手順本体                               |
-| `skills/orca-dev-ops/references/orca-operations-plan.md` | 設計の根拠。ルールが不明瞭なときのみ読む                         |
-| `hooks/orca-role-context.sh`                             | SessionStart。master / child のどちらかをセッションへ通知   |
-| `hooks/orca-role-guard.sh`                               | PreToolUse。master の直接編集と child のコミットを禁止      |
-| `hooks/orca-child-control.sh`                            | PostToolUse。`orca worktree create` 後に制御手順を注入 |
-| `hooks/orca-lib.sh`                                      | ロール判定の共通関数                                   |
-| `commands/orca-init.md`                                  | `/orca-init` スラッシュコマンド                       |
-| `scripts/orca-init.sh`                                   | worktree rules 設置スクリプト                       |
-| `templates/worktree-rules.md`                            | 設置される汎用ルールブロック                               |
+The hooks are launched through `${CLAUDE_PLUGIN_ROOT}` and resolve
+`orca-lib.sh` relative to their own location. No entries in
+`~/.claude/settings.json` are needed.
 
-
-フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
-`~/.claude/settings.json` への記述は不要。
-
-## インストール
+## Installation
 
 ```
-/plugin marketplace add <このリポジトリの URL>
+/plugin marketplace add https://github.com/5umm3r/orca-dev-ops
 /plugin install orca-dev-ops@orca-dev-ops
 ```
 
-## リポジトリへの適用
+## Applying to a repository
 
-対象リポジトリで `/orca-init` を実行すると、`.claude/CLAUDE.md` に子ワークツリー向けの
-汎用ルールブロックを設置し、`AGENTS.md` をそこへリンクする。
+Running `/orca-init` in a target repository installs the generic rules block
+for child worktrees in `.claude/CLAUDE.md` and links `AGENTS.md` to it.
 
-- ファイルが無い場合: 新規作成
-- マーカーブロックがある場合: ブロック内のみ置換（プラグイン更新時の再配布用）
-- マーカーが無い既存ファイル: 差分を提示し、`--apply` の確認を求める
+- If the file does not exist: it is created.
+- If a marker block exists: only the inside of the block is replaced (for
+  redistribution when the plugin is updated).
+- If the file exists without markers: the diff is shown and confirmation for
+  `--apply` is requested.
 
-設置されるのは汎用ブロックのみ。並行編集禁止ファイル一覧や検証コマンドなど
-リポジトリ固有のルールは、マーカーの外に人手で追記する。
+Only the generic block is installed. Repository-specific rules, such as the
+list of files that must not be edited in parallel or the verification
+commands, are added by hand outside the markers.
 
-## 前提
+## Prerequisites
 
-- `orca` CLI がパス上にあること
-- `jq` が利用可能であること
+- The `orca` CLI is on the `PATH`.
+- `jq` is available.
 
-## v2.0.0 への移行
+What is Orca: Orca is the multi-agent app that manages worktrees and agent
+terminals; this plugin drives its `orca` CLI. The skill was verified with
+Orca 1.4.206 (see "Known constraints" in `skills/orca-dev-ops/SKILL.md`).
 
-- プラグインを更新したら、ガード対象にしたい各リポジトリで `/orca-init` を
-  実行し直す。スコープの判定は「`.claude/CLAUDE.md` または `AGENTS.md` に
-  マーカーブロックがあるか」のみになった。マーカーが無いリポジトリはもう
-  制限を受けない。逆にスコープ内でロールが判定できない場合、以前は無制限に
-  動いていたが、今は書き込み系の操作をブロックする（fail closed）。
-- 統合先（integration ref）は `scripts/orca-base-ref.sh` が返す値（Orca の
-  base ref、無ければリモートの HEAD）を使う。判定できない場合は
-  `orca repo set-base-ref` で設定する。
-- 子は `orca orchestration worker-start --terminal` によるディスパッチワーカー
-  として起動する。レビュー指摘の修正は新しい Dispatch として渡す。
-- Codex の子エージェントには Claude の hooks が適用されない。サンドボックス
-  フラグと `AGENTS.md` のルールが唯一のガードになる。
-- 最初の子を起動する前に、Claude と Codex それぞれで各リポジトリを一度は
-  信頼済みにしておく。リポジトリは `/tmp` や `$TMPDIR` 配下に置かない
-  （Codex のサンドボックスでも書き込み可能なため）。
+## Migrating to v2.0.0
+
+- After updating the plugin, run `/orca-init` again in every repository you
+  want guarded. Scope is now decided only by whether `.claude/CLAUDE.md` or
+  `AGENTS.md` has a marker block. Repositories without the marker are no
+  longer restricted. Conversely, when the role cannot be determined inside
+  the scope, sessions used to run unrestricted; write operations are now
+  blocked (fail closed).
+- The integration target (integration ref) is the value returned by
+  `scripts/orca-base-ref.sh` (Orca's base ref, or the remote HEAD if there is
+  none). If it cannot be determined, set it with `orca repo set-base-ref`.
+- Children are started as dispatched workers through
+  `orca orchestration worker-start --terminal`. Fixes for review findings are
+  handed over as a new Dispatch.
+- Claude hooks do not apply to Codex child agents. The sandbox flags and the
+  rules in `AGENTS.md` are the only guards.
+- Before starting the first child, trust each repository once in both Claude
+  and Codex. Do not place repositories under `/tmp` or `$TMPDIR` (they are
+  writable even from the Codex sandbox).
+
+## Running the tests
+
+```sh
+for t in tests/*.test.sh; do sh "$t"; done
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

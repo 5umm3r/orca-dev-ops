@@ -11,7 +11,7 @@
       },
       "instanceId": "987d34dd-40ed-4050-97fc-6f99e0a3d34c",
       "repoId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
-      "projectId": "github:5umm3r/orca-dev-ops",
+      "projectId": "github:example-user/orca-dev-ops",
       "hostId": "local",
       "projectHostSetupId": "b63a7f48-68fb-453c-8641-9d0f3e6b853e",
       "creatorProvenance": {
@@ -19,7 +19,7 @@
       },
       "path": "/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard",
       "head": "6bc59544c5e97f28114594a8b3dc08f8d8106874",
-      "branch": "refs/heads/5umm3r/cc-role-guard",
+      "branch": "refs/heads/example-user/cc-role-guard",
       "isBare": false,
       "isMainWorktree": false,
       "displayName": "cc-role-guard",
@@ -68,7 +68,7 @@
       "git": {
         "path": "/Users/dev/orca/workspaces/orca-dev-ops/cc-role-guard",
         "head": "6bc59544c5e97f28114594a8b3dc08f8d8106874",
-        "branch": "refs/heads/5umm3r/cc-role-guard",
+        "branch": "refs/heads/example-user/cc-role-guard",
         "isBare": false,
         "isMainWorktree": false
       }

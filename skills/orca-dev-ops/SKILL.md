@@ -10,9 +10,6 @@ command syntax, flags, and behavior, read the official guide (below) and
 `orca skills get orchestration` / `orca skills get orca-cli`; do not expect
 this file to restate them.
 
-Background and historical rollout notes: `references/orca-operations-plan.md`.
-Where it conflicts with this file, this file prevails.
-
 ## Official guide
 
 Before the first Orca state-changing command in a session, read the relevant
@@ -151,10 +148,10 @@ Effort mapping (the only part to update when the CLIs change):
 
 | Grade | Claude `--effort` (low, medium, high, xhigh, max) | Codex `model_reasoning_effort` (low, medium, high, xhigh, max, ultra; model-dependent) |
 |---|---|---|
-| max (最高) | `max` | `max`; `xhigh` when the model lacks `max` |
-| high (高) | `high` | `high` |
-| normal (普通) | `medium` | `medium` |
-| low (低) | `low` | `low` |
+| max | `max` | `max`; `xhigh` when the model lacks `max` |
+| high | `high` | `high` |
+| normal | `medium` | `medium` |
+| low | `low` | `low` |
 
 Write the task prompt to the scratchpad: the approved plan, the allowed
 files, done-when conditions (including which verification must pass —

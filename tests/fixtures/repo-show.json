@@ -10,7 +10,7 @@
       "addedAt": 1789520016670,
       "kind": "git",
       "externalWorktreeVisibilityLegacy": false,
-      "gitUsername": "5umm3r",
+      "gitUsername": "example-user",
       "hookSettings": {
         "mode": "auto",
         "setupRunPolicy": "run-by-default",
@@ -22,15 +22,15 @@
       },
       "repoIcon": {
         "type": "image",
-        "src": "https://github.com/5umm3r.png?size=64",
+        "src": "https://example.com/avatar.png",
         "source": "github",
-        "label": "5umm3r/orca-dev-ops"
+        "label": "example-user/orca-dev-ops"
       },
       "upstream": null,
       "gitRemoteIdentity": {
-        "canonicalKey": "github.com/5umm3r/orca-dev-ops",
+        "canonicalKey": "github.com/example-user/orca-dev-ops",
         "remoteName": "origin",
-        "remoteUrl": "git@github.com:5umm3r/orca-dev-ops.git"
+        "remoteUrl": "git@github.com:example-user/orca-dev-ops.git"
       },
       "projectHostSetupMethod": "imported-existing-folder",
       "externalWorktreeVisibility": "hide"

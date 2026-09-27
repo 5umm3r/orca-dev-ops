@@ -120,9 +120,11 @@ non-documentation edit.
 | `monitor.wakeOnStatus` | boolean | `false` | Whether `scripts/orca-wait.sh` also wakes on `status` messages |
 | `monitor.timeoutMs` | integer > 0 | `590000` | Total time `scripts/orca-wait.sh` waits before it gives up |
 
-`scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status]`
+`scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]`
 is the coordinator's wait. It runs `orca orchestration check --wait` and wakes
-only on actionable mail:
+only on actionable mail. With `--out`, it also writes the printed object to
+`<path>` atomically (an earlier file there is removed at startup), for callers
+whose captured stdout is not pure JSON:
 
 - A Delivery that holds a `worker_done`, `escalation`, `question`, or any
   other type except `heartbeat` and `status` (and `status` too with

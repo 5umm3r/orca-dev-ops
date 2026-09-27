@@ -18,7 +18,8 @@
 #                       checkout, main first), truncated (the same with truncated: true).
 #   ORCA_STUB_CHECK     space-separated results of successive `orchestration check` calls
 #                       (default: timeout): timeout (empty, timedOut), empty (empty, not timed
-#                       out), error (ok false, exit 1), or a comma-separated list of message
+#                       out), block (timeout after sleeping ORCA_STUB_BLOCK_SECONDS, default 3),
+#                       error (ok false, exit 1), or a comma-separated list of message
 #                       types for one Delivery with deliveryId dlv_<call number> (`untyped` is a
 #                       message whose type is null). Each result follows a keepalive line on
 #                       stdout and stderr.
@@ -93,6 +94,7 @@ case "$1 $2" in
   while [ "$n" -gt 0 ] && [ $# -gt 0 ]; do outcome=$1; n=$((n - 1)); shift; done
   keepalive='{"_keepalive":true,"_heartbeat":true,"elapsedMs":15000,"deadlineMs":590000}'
   echo "$keepalive"; echo "$keepalive" >&2
+  [ "$outcome" = block ] && { sleep "${ORCA_STUB_BLOCK_SECONDS:-3}"; outcome=timeout; }
   case "$outcome" in
   error) echo '{"ok":false,"error":{"code":"consumer_fenced","message":"Run run_stub is bound to another consumer."}}'; exit 1 ;;
   timeout | empty) jq --argjson t "$([ "$outcome" = timeout ] && echo true || echo false)" \

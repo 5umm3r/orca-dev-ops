@@ -253,10 +253,15 @@ workflow's choices and what live tests showed.
   message whose payload dispatchId is not the active Dispatch.
 - Monitoring must match what this coordinator session can actually do:
   - Claude Code: arm a background
-    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-wait.sh" --run <run_id>` (the
-    plugin's `scripts/orca-wait.sh`, resolved the same way as
+    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-wait.sh" --run <run_id> --out <scratchpad>/orca-wait-<run_id>.json`
+    (the plugin's `scripts/orca-wait.sh`, resolved the same way as
     `orca-base-ref.sh` in "Invariants") whose completion re-invokes the
-    session. It wraps `check --wait` (`--types` alone is not reliable: a
+    session; when re-invoked, read the `--out` file, not the background
+    task's output file (see "Known constraints"):
+    ```sh
+    jq -r '.delivery.result.deliveryId, (.delivery.result.messages[]? | "[\(.type)] \(.subject // "")\n\(.body)\n\(.payload)"), (.deferred[]? | "[deferred status] \(.body)"), (.error // empty | "[error] \(.)")' <scratchpad>/orca-wait-<run_id>.json
+    ```
+    It wraps `check --wait` (`--types` alone is not reliable: a
     heartbeat can end the wait, see "Known constraints"): it acknowledges
     batches of only heartbeats and statuses and keeps waiting, and exits 0
     with `{"delivery": ..., "deferred": [...]}` on a Delivery that holds a
@@ -407,3 +412,6 @@ release -> worktree removal.
   before the pretty-printed result, so piping stdout straight into
   `jq '.result...'` fails or yields empty objects; filter with
   `jq -s 'map(select(._keepalive | not)) | last'`.
+- The Claude Code background task output file is not pure JSON: it ends
+  with an `[exited with code N]` trailer, so `jq` on it fails. Never pipe it
+  to `jq` directly; read the `--out` file of `orca-wait.sh` instead.

@@ -115,9 +115,11 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 | `monitor.wakeOnStatus` | 真偽値 | `false` | `scripts/orca-wait.sh` が `status` メッセージでも起きるかどうか |
 | `monitor.timeoutMs` | 0 より大きい整数 | `590000` | `scripts/orca-wait.sh` が待機を打ち切るまでの合計時間 |
 
-`scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status]` は
+`scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]` は
 コーディネーター用の待機コマンド。`orca orchestration check --wait` を実行し、
-対応が必要なメッセージが来たときだけ起きる。
+対応が必要なメッセージが来たときだけ起きる。`--out` を指定すると、出力するオブジェクトを
+`<path>` にもアトミックに書き込む（起動時に既存のファイルは削除する）。取得した標準出力が
+純粋な JSON にならない呼び出し元向け。
 
 - `worker_done`・`escalation`・`question`、または `heartbeat` と `status` 以外の
   種類（`--wake-on-status` 指定時は `status` も）を含む Delivery は

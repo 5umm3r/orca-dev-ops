@@ -106,6 +106,38 @@ has "invalid settings: default timeout" "$(call 1)" "--timeout-ms 590000"
 has "invalid settings: warning on stderr" "$(cat "$tmp/err")" "settings warning: Ignored"
 rm -f "$repo/.orca-dev-ops.json"
 
+# --- --out: the printed object also lands in a file, byte for byte
+mkdir -p "$tmp/res"
+res="$tmp/res/wait.json"
+written() { cmp -s "$tmp/out" "$res" && echo same || echo differs; }
+result "--out worker_done" "0 1" "$(wait_for worker_done --out "$res")"
+result "--out worker_done: file equals stdout" same "$(written)"
+result "--out timeout" "2 1" "$(wait_for timeout --out "$res")"
+result "--out timeout: file equals stdout" same "$(written)"
+result "--out timeout: file parses" null "$(jq -c .delivery "$res")"
+result "--out Orca error" "1 1" "$(wait_for error --out "$res")"
+result "--out Orca error: file equals stdout" same "$(written)"
+printf 'stale\n' > "$res"
+result "--out stale file" "0 2" "$(wait_for 'status worker_done' --out "$res")"
+result "--out stale file: replaced by the new result" same "$(written)"
+result "--out: no temp file left" "wait.json" "$(ls -A "$tmp/res" | tr '\n' ' ' | sed 's/ $//')"
+rm -f "$res"
+wait_for worker_done >/dev/null
+result "without --out: no file" "" "$(ls -A "$tmp/res"; find "$tmp" -name '.orca-wait.*'; git -C "$repo" status --porcelain)"
+
+# --- --out: an interrupted wait leaves neither the file nor a temp file
+: > "$ORCA_STUB_LOG"
+printf 'stale\n' > "$res"
+ORCA_STUB_CHECK=block ORCA_STUB_BLOCK_SECONDS=2 sh "$script" --run run_1 --out "$res" >/dev/null 2>&1 &
+pid=$!
+i=0
+while [ "$i" -lt 100 ] && ! grep -q '^orchestration check' "$ORCA_STUB_LOG"; do sleep 0.1; i=$((i + 1)); done
+kill -TERM "$pid"
+wait "$pid"
+result "--out interrupted: TERM exit code" 143 "$?"
+result "--out interrupted: no process left" gone "$(kill -0 "$pid" 2>/dev/null && echo running || echo gone)"
+result "--out interrupted: no file and no temp file" "" "$(ls -A "$tmp/res")"
+
 # --- usage
 usage() { sh "$script" "$@" >/dev/null 2>&1; echo "$?"; }
 result "no arguments" 64 "$(usage)"
@@ -114,5 +146,19 @@ result "unknown option" 64 "$(usage --run r --bogus)"
 result "non-numeric --timeout-ms" 64 "$(usage --run r --timeout-ms soon)"
 result "zero --timeout-ms" 64 "$(usage --run r --timeout-ms 0)"
 result "empty --timeout-ms" 64 "$(usage --run r --timeout-ms '')"
+result "missing --out value" 64 "$(usage --run r --out)"
+result "empty --out" 64 "$(usage --run r --out '')"
+result "unknown option with --out" 64 "$(usage --run r --bogus --out "$res")"
+result "unknown option with --out: no file" "" "$(ls -A "$tmp/res")"
+result "--out in a missing directory" 64 "$(usage --run r --out "$tmp/missing/wait.json")"
+result "--out in a missing directory: no file" no "$([ -e "$tmp/missing" ] && echo yes || echo no)"
+result "--out naming a directory" 64 "$(usage --run r --out "$tmp/res")"
+
+# --- --out: a failure before the wait still removes an earlier result
+mkdir -p "$tmp/nobin"
+ln -s "$(command -v jq)" "$tmp/nobin/jq"
+printf 'stale\n' > "$res"
+result "--out without orca on PATH" 1 "$(PATH="$tmp/nobin:/bin:/usr/bin" sh "$script" --run r --out "$res" >/dev/null 2>&1; echo "$?")"
+result "--out without orca on PATH: stale file removed" no "$([ -e "$res" ] && echo yes || echo no)"
 
 exit "$fail"

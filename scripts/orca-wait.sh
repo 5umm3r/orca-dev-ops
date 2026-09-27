@@ -1,5 +1,5 @@
 #!/bin/sh
-# Usage: orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status]
+# Usage: orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]
 # Coordinator wait that wakes only on actionable mail. Wraps
 #   orca orchestration check --run <run_id> --wait --types <types> --timeout-ms <remaining> --json
 # where <types> is worker_done,escalation,question (plus status with --wake-on-status). Defaults
@@ -20,25 +20,38 @@
 # "deferred" holds the full status messages acknowledged by this call; the caller must read
 # them, since they will not be delivered again. Every loop iteration blocks in `check --wait`
 # (no busy loop). Usage errors exit 64. Requires orca and jq.
+# --out <path> also writes the printed object to <path> (its directory must exist): any existing
+# <path> is removed at startup, and the object is written to a temp file in the same directory
+# that is renamed onto <path>, so <path> exists only as a complete result. A write failure is
+# reported on stderr and keeps the exit code; INT, TERM, and HUP remove the temp file and exit
+# 130, 143, and 129. Use it when stdout is not read as-is (e.g. a background task's output file).
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/hooks/orca-lib.sh"
 usage() { printf 'orca-wait: %s\n' "$*" >&2; exit 64; }
 
-run= timeout= wake=
+run= timeout= wake= out= outtmp=
 while [ $# -gt 0 ]; do
   case "$1" in
-  --run | --timeout-ms) [ $# -ge 2 ] || usage "missing value for $1" ;;
+  --run | --timeout-ms | --out) [ $# -ge 2 ] || usage "missing value for $1" ;;
   esac
   case "$1" in
   --run) run=$2; shift ;;
   --timeout-ms) timeout=$2; [ -n "$2" ] || usage "--timeout-ms takes a whole number of milliseconds"; shift ;;
   --wake-on-status) wake=1 ;;
+  --out) out=$2; [ -n "$2" ] || usage "--out takes a file path"; shift ;;
   *) usage "unknown option: $1" ;;
   esac
   shift
 done
 [ -n "$run" ] || usage "--run is required"
 case "$timeout" in *[!0-9]*) usage "--timeout-ms takes a whole number of milliseconds" ;; esac
+if [ -n "$out" ]; then
+  outdir=$(dirname -- "$out")
+  [ -d "$outdir" ] || usage "--out: directory does not exist: $outdir"
+  [ -d "$out" ] && usage "--out names a directory: $out"
+  # A caller never reads the result of an earlier wait from --out, even when this call fails.
+  rm -f -- "$out"
+fi
 command -v orca >/dev/null 2>&1 || { echo 'orca-wait: orca is not on PATH' >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo 'orca-wait: jq is not on PATH' >&2; exit 1; }
 
@@ -54,10 +67,23 @@ deferred='[]' ack= remaining=$timeout
 # date has whole seconds only: after the first wait, the current time counts as the end of the
 # current second, so the deadline is never overshot and a short timeout cannot spin.
 deadline=$(( $(date +%s) * 1000 + timeout ))
-# finish <exit code> <delivery JSON or null> [<error JSON>]
+# on_signal <exit code>: drops a half-written --out temp file and exits.
+on_signal() {
+  [ -n "$outtmp" ] && rm -f -- "$outtmp"
+  exit "$1"
+}
+# finish <exit code> <delivery JSON or null> [<error JSON>]: prints the object, and with --out
+# writes the same bytes to a temp file renamed onto <path>.
 finish() {
-  jq -n --argjson d "$2" --argjson f "$deferred" --argjson e "${3:-null}" \
-    '{delivery: $d, deferred: $f} + (if $e == null then {} else {error: $e} end)'
+  json=$(jq -n --argjson d "$2" --argjson f "$deferred" --argjson e "${3:-null}" \
+    '{delivery: $d, deferred: $f} + (if $e == null then {} else {error: $e} end)')
+  printf '%s\n' "$json"
+  if [ -n "$out" ]; then
+    outtmp=$(mktemp "$outdir/.orca-wait.XXXXXX") && printf '%s\n' "$json" > "$outtmp" \
+      && mv -f -- "$outtmp" "$out" \
+      || { printf 'orca-wait: could not write %s\n' "$out" >&2; [ -n "$outtmp" ] && rm -f -- "$outtmp"; }
+    outtmp=
+  fi
   exit "$1"
 }
 # check_once <option>...: one `orca orchestration check`; the final non-keepalive object in $res.
@@ -74,6 +100,11 @@ actionable() {
     any(.result.messages[]; (.type // "status") as $t | $t != "heartbeat" and ($t != "status" or $wake != ""))' >/dev/null
 }
 
+if [ -n "$out" ]; then
+  trap 'on_signal 130' INT
+  trap 'on_signal 143' TERM
+  trap 'on_signal 129' HUP
+fi
 first=1
 while :; do
   if [ -z "$first" ]; then

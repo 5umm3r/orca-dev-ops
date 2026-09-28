@@ -1,6 +1,6 @@
 {
   "name": "orca-dev-ops",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Orca-managed worktree workflow, coordination rules, and repository initialization for Codex, provided as skills. The orca-init skill installs the launch gate into each repository; the Codex sandbox flags and the repository's AGENTS.md remain the other guardrails.",
   "author": {
     "name": "5umm3r"

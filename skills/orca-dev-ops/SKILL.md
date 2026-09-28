@@ -60,9 +60,14 @@ Apart from the launch gate, Codex sessions are not covered by these hooks; the C
 
 A repository joins this workflow only once its own "Orca worktree rules" are in
 place; the plugin hooks guard Claude sessions, but the child agents still read
-those rules, and Codex children have nothing else. Run `/orca-init` in the
-repository to install the generic block into `.claude/CLAUDE.md` (and link
-`AGENTS.md` to it). The command is idempotent: it replaces the marked block on
+those rules, and Codex children have nothing else. Use the `orca-init` skill
+in the target repository: Claude Code's `/orca-init`, or Codex's `$orca-init`
+(also selectable through `/skills`). Read [the shared initialization
+procedure](../orca-init/SKILL.md), resolved relative to this file, before
+running it. That skill resolves the installed plugin root and passes an
+explicit repository path to `scripts/orca-init.sh` to install the generic
+block into `.claude/CLAUDE.md` (and link `AGENTS.md` to it).
+Initialization is idempotent: it replaces the marked block on
 later plugin upgrades and leaves everything outside the markers untouched.
 Repository-specific rules - the no-parallel-edit file list and the verification
 commands - go outside the markers by hand. This installed block is also what
@@ -70,7 +75,7 @@ commands - go outside the markers by hand. This installed block is also what
 `orca-worktree-rules` marker) to decide a checkout is in scope; without it,
 the hooks do nothing there.
 
-Codex plugins cannot ship hooks, so `/orca-init` also installs the launch gate
+The initialization script also installs the launch gate
 for Codex coordinators into the repository: copies of `orca-launch-gate.sh`
 and `orca-lib.sh` in `.codex/hooks/` (refreshed on every run; do not edit
 them) and a `PreToolUse` `Bash` entry in `.codex/hooks.json` that runs the gate
@@ -79,7 +84,7 @@ entry needs confirmation (`--apply`) and keeps its other hooks. Codex asks the
 user once to trust new or changed hooks at its next start; until then the gate
 does not run there.
 
-`/orca-init` also creates `.orca-dev-ops.json` in the main checkout when it is
+Initialization also creates `.orca-dev-ops.json` in the main checkout when it is
 missing, with every key that has a default (see "Repository settings"; no
 `--apply` needed, `--no-settings` skips it). An existing file is never
 modified, only validated.
@@ -92,7 +97,7 @@ its top level (full reference: `docs/config.md` in the plugin): `launch`
 (`maxWorktrees`, `smallChangeFiles`, `smallChangeLines`), and `monitor`
 (`wakeOnStatus`, `timeoutMs`). Without the file, the built-in defaults apply,
 which are the behavior this skill describes (launch mode `ask`, 3 worktrees,
-2 files and 20 lines, 590000 ms); `/orca-init` writes exactly these values
+2 files and 20 lines, 590000 ms); initialization writes exactly these values
 when it creates the file, and they stay as written when a later plugin version
 changes a default. The hooks and scripts read it from the main
 checkout only, never from a child worktree. An invalid file is ignored as a
@@ -113,8 +118,10 @@ integration, `--force`); the loader rejects unknown keys.
 
 - The base ref is whatever the plugin's `scripts/orca-base-ref.sh <repo>`
   prints — in Claude, `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-base-ref.sh"
-  <repo>`; in other agents, `scripts/orca-base-ref.sh` two directories above
-  this SKILL.md (it is not on `PATH` and does not work from an arbitrary cwd).
+  <repo>`; in other agents, resolve the plugin root as `../..` from the
+  directory containing this loaded `SKILL.md`, then use that root's
+  `scripts/orca-base-ref.sh` (it is not on `PATH`). Expand catalog root
+  aliases before resolving the path; do not guess a cache version.
   Never assume a branch name, never guess `master`/`main`. If it fails, stop
   and ask before creating a branch or integrating.
 - Only the master session merges into the base ref; a task branch advances it

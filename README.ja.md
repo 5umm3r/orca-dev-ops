@@ -2,7 +2,7 @@
 
 # orca-dev-ops
 
-Orca（Orca CLI）を使った複数デバイス開発のマスターセッション手順を、Claude Code
+Orca（Orca CLI）を使った複数デバイス開発のマスターセッション手順を、Claude Code と Codex の
 プラグインとして配布するリポジトリ。計画を親ワークツリーで行い、実装を Claude または
 Codex の子ワークツリーに委ねる分業を前提とする。
 
@@ -11,12 +11,13 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | パス | 役割 |
 | --- | --- |
 | `skills/orca-dev-ops/SKILL.md` | マスターセッションの手順本体 |
+| `skills/orca-init/SKILL.md` | 共通の初期化手順。Codex では `$orca-init` で呼び出す |
 | `hooks/orca-role-context.sh` | SessionStart。master / child のどちらかをセッションへ通知する |
 | `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止する |
 | `hooks/orca-child-control.sh` | PostToolUse。`orca worktree create` 後に制御手順を注入する |
 | `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動をブロックする（Claude と Codex） |
 | `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
-| `commands/orca-init.md` | `/orca-init` スラッシュコマンド |
+| `commands/orca-init.md` | 共通の初期化スキルを参照する Claude Code 用 `/orca-init` コマンド |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
 | `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
@@ -26,19 +27,38 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 
 フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
 `~/.claude/settings.json` への記述は不要。
-Codex のプラグインはフックを同梱できないため、Codex 向けの起動ゲートは `/orca-init` が
-各リポジトリへ設置する（後述）。
+このプラグインの Codex 向け起動ゲートは、後述の初期化手順で各リポジトリへ設置する。
 
 ## インストール
+
+Claude Code の場合:
 
 ```
 /plugin marketplace add https://github.com/5umm3r/orca-dev-ops
 /plugin install orca-dev-ops@orca-dev-ops
 ```
 
+Codex ではプラグインマネージャーから `orca-dev-ops` をインストールする。
+パッケージの `.codex-plugin/plugin.json` が `skills/` 内の両スキルを公開する。
+
 ## リポジトリへの適用
 
-対象リポジトリで `/orca-init` を実行すると、`.claude/CLAUDE.md` に子ワークツリー向けの
+対象リポジトリのセッションで、次の方法で呼び出す。
+
+| エージェント | 呼び出し方 |
+| --- | --- |
+| Claude Code | `/orca-init` |
+| Codex | `$orca-init`、または `/skills` から `orca-init` を選択 |
+
+Codex の候補にプラグイン名付きで表示される場合は、`$` を入力し、このプラグインの
+`orca-init` スキルを選択する。インストール・更新後に候補へ出ない場合は、新しい
+セッションを開始する。
+
+両方とも[同じ初期化手順](skills/orca-init/SKILL.md)を参照する。読み込んだスキルの
+実際のパスからプラグインルートを解決し、対象リポジトリを `scripts/orca-init.sh` へ
+明示的に渡す。Codex では `CLAUDE_PLUGIN_ROOT` や固定のキャッシュパスは不要。
+
+初期化すると、`.claude/CLAUDE.md` に子ワークツリー向けの
 汎用ルールブロックを設置し、`AGENTS.md` をそこへリンクする。
 
 - ファイルが無い場合: 新規作成する。
@@ -65,7 +85,7 @@ Codex のプラグインはフックを同梱できないため、Codex 向け�
 起動のたびに質問する。デフォルト。`auto`: 質問せず、決まったエージェント・モデル・
 エフォートで起動する）、ワークツリー数と小さな変更の上限、コーディネーターの待機を
 設定できる。ファイルはメインチェックアウトからのみ読み、不正な場合は警告を出して
-無視する。ファイルが無ければ動作は変わらない。`/orca-init` はすべてのデフォルト値で
+無視する。ファイルが無ければ動作は変わらない。初期化時にすべてのデフォルト値で
 このファイルを作成する。書き込まれた値は、後のプラグインのバージョンでデフォルト値が
 変わってもそのまま残る。詳細は
 [docs/config.ja.md](docs/config.ja.md) を参照。`scripts/orca-config.sh show` で
@@ -83,7 +103,8 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
 ## アップグレード
 
 プラグインの更新で worktree rules のテンプレートやフックが変わったら、それを使っている
-すべてのリポジトリで `/orca-init` を実行し直す。置換されるのはマーカーブロックと Codex 用
+すべてのリポジトリで初期化を実行し直す（Claude Code は `/orca-init`、Codex は
+`$orca-init`）。置換されるのはマーカーブロックと Codex 用
 フックのコピーのみで、マーカーの外の内容と他の Codex フックは保持される。
 
 ## 動作
@@ -100,7 +121,7 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
   1 問ずつ（ヘッダー `Agent`・`Model`・`Effort`）ユーザーに質問する。起動ゲートは
   セッションのトランスクリプトを読み、直前の成功した起動より後にその回答が揃うまで
   起動をブロックする。失敗した起動は質問し直さずに再試行できる。Claude に適用され、
-  `/orca-init` を通じて Codex のコーディネーターにも適用される。
+  初期化手順を通じて Codex のコーディネーターにも適用される。
 - 起動ゲートを除き、Codex のエージェントには Claude の hooks が適用されない。Codex の
   子エージェントでは、サンドボックスフラグと `AGENTS.md` のルールが唯一のガードになる。
 - 最初の子を起動する前に、Claude と Codex それぞれで各リポジトリを一度は

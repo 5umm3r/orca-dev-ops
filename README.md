@@ -2,7 +2,7 @@ English | [日本語](README.ja.md)
 
 # orca-dev-ops
 
-A repository that distributes, as a Claude Code plugin, the master-session
+A repository that distributes, as a Claude Code and Codex plugin, the master-session
 procedure for multi-device development with Orca (the Orca CLI). It assumes a
 division of work: planning happens in the parent worktree, and implementation
 is delegated to child worktrees running either Claude or Codex.
@@ -12,12 +12,13 @@ is delegated to child worktrees running either Claude or Codex.
 | Path | Role |
 | --- | --- |
 | `skills/orca-dev-ops/SKILL.md` | The master-session procedure itself |
+| `skills/orca-init/SKILL.md` | Shared repository initialization procedure; Codex's `$orca-init` skill |
 | `hooks/orca-role-context.sh` | SessionStart. Tells the session whether it is the master or a child |
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
 | `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
 | `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
-| `commands/orca-init.md` | The `/orca-init` slash command |
+| `commands/orca-init.md` | Claude Code's `/orca-init` command, which reads the shared initialization skill |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
@@ -28,19 +29,40 @@ is delegated to child worktrees running either Claude or Codex.
 The hooks are launched through `${CLAUDE_PLUGIN_ROOT}` and resolve
 `orca-lib.sh` relative to their own location. No entries in
 `~/.claude/settings.json` are needed.
-Codex plugins cannot ship hooks, so for Codex the launch gate is installed into
-each repository by `/orca-init` (see below).
+For Codex, this plugin installs the launch gate into each repository through
+the initialization procedure below.
 
 ## Installation
+
+In Claude Code:
 
 ```
 /plugin marketplace add https://github.com/5umm3r/orca-dev-ops
 /plugin install orca-dev-ops@orca-dev-ops
 ```
 
+In Codex, install the `orca-dev-ops` plugin using its plugin manager. The
+package's `.codex-plugin/plugin.json` exposes both skills under `skills/`.
+
 ## Applying to a repository
 
-Running `/orca-init` in a target repository installs the generic rules block
+In a session for the target repository, invoke:
+
+| Agent | Invocation |
+| --- | --- |
+| Claude Code | `/orca-init` |
+| Codex | `$orca-init`, or select `orca-init` through `/skills` |
+
+In Codex, type `$` and select the plugin's `orca-init` skill if the picker
+shows a qualified name. After installing or updating the plugin, start a
+new session if the skill is not listed.
+
+Both entry points follow [the same procedure](skills/orca-init/SKILL.md).
+It resolves the plugin root from the loaded skill's actual path and passes
+the target repository explicitly to `scripts/orca-init.sh`. Codex does not
+need `CLAUDE_PLUGIN_ROOT` or a fixed plugin cache path.
+
+Initialization installs the generic rules block
 for child worktrees in `.claude/CLAUDE.md` and links `AGENTS.md` to it.
 
 - If the file does not exist: it is created.
@@ -71,7 +93,7 @@ choose the launch mode (`ask`: questions before every launch, the default;
 `auto`: a fixed agent, model, and effort without questions), the worktree and
 small-change limits, and the coordinator's wait. It is read from the main
 checkout only, and an invalid file is ignored with a warning. Without it,
-behavior is unchanged. `/orca-init` creates it with every default; the
+behavior is unchanged. Initialization creates it with every default; the
 written values stay as they are when a later plugin version changes a
 default. See [docs/config.md](docs/config.md);
 `scripts/orca-config.sh show` prints the effective settings.
@@ -88,7 +110,8 @@ Orca 1.4.206 and 1.4.209 (see "Known constraints" in `skills/orca-dev-ops/SKILL.
 ## Upgrading
 
 When a plugin update changes the worktree-rules template or the hooks, run
-`/orca-init` again in every repository that uses it. Only the marker block and
+initialization again in every repository that uses it (`/orca-init` in
+Claude Code, `$orca-init` in Codex). Only the marker block and
 the Codex hook copies are replaced; content outside the markers and other
 Codex hooks are kept.
 
@@ -109,7 +132,7 @@ Codex hooks are kept.
   `Effort`). The launch gate reads the session transcript and blocks the launch
   until those answers exist after the last successful launch; a failed launch
   can be retried without asking again. It applies to Claude and, through
-  `/orca-init`, to Codex coordinators.
+  repository initialization, to Codex coordinators.
 - Apart from the launch gate, Claude hooks do not apply to Codex agents. The
   sandbox flags and the rules in `AGENTS.md` are the only guards for Codex
   child agents.

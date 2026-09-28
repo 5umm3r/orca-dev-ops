@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-09-28T00:59:00.000Z","message":{"id":"msg_user","usage":{"input_tokens":9999,"output_tokens":9999}}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:00.000Z","message":{"id":"msg_1","usage":{"input_tokens":10,"output_tokens":100,"cache_read_input_tokens":1000000,"cache_creation_input_tokens":200}}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:01.000Z","message":{"id":"msg_1","usage":{"input_tokens":10,"output_tokens":100,"cache_read_input_tokens":1000000,"cache_creation_input_tokens":200}}}
+not json {
+{"type":"system","timestamp":"2026-09-28T02:30:00.000Z","message":{"id":"msg_sys","usage":{"input_tokens":7777,"output_tokens":7777}}}
+{"type":"assistant","timestamp":"2026-09-28T03:00:00.000Z","message":{"id":"msg_2","usage":{"input_tokens":5,"output_tokens":50,"cache_read_input_tokens":500}}}

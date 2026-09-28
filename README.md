@@ -23,6 +23,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
 | `scripts/orca-wait.sh` | Coordinator wait: wakes on actionable mail, acknowledges heartbeat- and status-only batches and keeps the statuses |
+| `scripts/orca-usage.sh` | Sums a child worktree's token usage from the local Claude and Codex transcripts |
 | `docs/config.md` | Reference for the repository settings file |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
 

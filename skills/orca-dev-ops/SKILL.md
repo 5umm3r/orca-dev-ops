@@ -316,6 +316,11 @@ agent session in the same task.
   a blanket `git add -A`. After a rebase that changed the tested content,
   rerun the required verification through a new Dispatch.
 - Children keep changes uncommitted; the coordinator commits and integrates.
+- After reviewing a `worker_done`, include the output of the plugin's
+  `scripts/orca-usage.sh <worktree path>` (resolved the same way as
+  `orca-base-ref.sh` in "Invariants") in the report to the user. Run it
+  before removing the worktree. Exit 3 means "usage unavailable", not a
+  failure.
 - `worker-release` (per the guide's completion accounting) and worktree
   removal are separate steps. Before removal, check terminal ownership and
   other live Dispatches in that worktree. See "Known constraints" for the two
@@ -422,3 +427,7 @@ release -> worktree removal.
 - The Claude Code background task output file is not pure JSON: it ends
   with an `[exited with code N]` trailer, so `jq` on it fails. Never pipe it
   to `jq` directly; read the `--out` file of `orca-wait.sh` instead.
+- `orca-usage.sh` sums local transcripts (Claude `~/.claude/projects`, Codex
+  `~/.codex/sessions`), not a billing record. Claude writes one line per
+  content block with the same usage, so lines are deduplicated by
+  `message.id`; Codex `input_tokens` includes cached input.

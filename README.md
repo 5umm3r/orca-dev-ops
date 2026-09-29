@@ -35,11 +35,12 @@ the initialization procedure below.
 
 ## Installation
 
-In Claude Code:
+In Claude Code, install from the
+[5umm3r/cccx-plugins](https://github.com/5umm3r/cccx-plugins) marketplace:
 
 ```
-/plugin marketplace add https://github.com/5umm3r/orca-dev-ops
-/plugin install orca-dev-ops@orca-dev-ops
+/plugin marketplace add 5umm3r/cccx-plugins
+/plugin install orca-dev-ops@cccx-plugins
 ```
 
 In Codex, install the `orca-dev-ops` plugin using its plugin manager. The

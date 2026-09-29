@@ -32,11 +32,11 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 
 ## インストール
 
-Claude Code の場合:
+Claude Code の場合は [5umm3r/cccx-plugins](https://github.com/5umm3r/cccx-plugins) マーケットプレースから入れる:
 
 ```
-/plugin marketplace add https://github.com/5umm3r/orca-dev-ops
-/plugin install orca-dev-ops@orca-dev-ops
+/plugin marketplace add 5umm3r/cccx-plugins
+/plugin install orca-dev-ops@cccx-plugins
 ```
 
 Codex ではプラグインマネージャーから `orca-dev-ops` をインストールする。

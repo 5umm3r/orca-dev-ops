@@ -1,12 +1,16 @@
 #!/bin/sh
 # Usage: orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]
 # Coordinator wait that wakes only on actionable mail. Wraps
-#   orca orchestration check --run <run_id> --wait --types <types> --timeout-ms <remaining> --json
-# where <types> is worker_done,escalation,question (plus status with --wake-on-status). Defaults
-# come from the repository's .orca-dev-ops.json (monitor.timeoutMs, monitor.wakeOnStatus; see
+#   orca orchestration check --run <run_id> --wait --timeout-ms <remaining> --json
+# with no --types: Orca types "You have N orchestration message(s)..." into an idle coordinator
+# terminal and submits it with Enter for every unread message type that no live `check --wait`
+# covers, so a typed waiter would leave the other types (heartbeat, status) to that injection.
+# An untyped waiter covers every type (read from Orca 1.4.216's bundled code). Defaults come
+# from the repository's .orca-dev-ops.json (monitor.timeoutMs, monitor.wakeOnStatus; see
 # docs/config.md), read from the main checkout of the current directory's repository.
-# A Delivery is the whole FIFO batch and is replayed until acknowledged; --types only decides
-# when the waiter wakes, so a heartbeat alone can end a wait. This script:
+# A Delivery is the whole FIFO batch and is replayed until acknowledged; any message ends the
+# Orca wait, and this script decides which batches wake the caller. --wake-on-status
+# (monitor.wakeOnStatus) only changes that decision, never what the Orca wait covers:
 #   - Delivery with any message other than heartbeat and (without --wake-on-status) status:
 #     not acknowledged; prints {"delivery": <check result>, "deferred": [...]}, exit 0.
 #   - Delivery of heartbeats and (without --wake-on-status) statuses only: its status messages
@@ -60,8 +64,6 @@ orca_config_load "$PWD"
 [ -n "$timeout" ] || timeout=$(orca_config .monitor.timeoutMs)
 [ -n "$wake" ] || { [ "$(orca_config .monitor.wakeOnStatus)" = true ] && wake=1; }
 [ "$timeout" -gt 0 ] 2>/dev/null || usage "--timeout-ms must be greater than 0"
-types=worker_done,escalation,question
-[ -n "$wake" ] && types=$types,status
 
 deferred='[]' ack= remaining=$timeout
 # date has whole seconds only: after the first wait, the current time counts as the end of the
@@ -120,9 +122,9 @@ while :; do
     finish 2 null
   fi
   if [ -n "$ack" ]; then
-    check_once --ack "$ack" --wait --types "$types" --timeout-ms "$remaining"
+    check_once --ack "$ack" --wait --timeout-ms "$remaining"
   else
-    check_once --wait --types "$types" --timeout-ms "$remaining"
+    check_once --wait --timeout-ms "$remaining"
   fi
   [ "$(printf '%s' "$res" | jq '.result.messages | length')" -gt 0 ] || finish 2 null
   id=$(printf '%s' "$res" | jq -r '.result.deliveryId // empty')

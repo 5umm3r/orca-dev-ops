@@ -268,8 +268,9 @@ workflow's choices and what live tests showed.
     ```sh
     jq -r '.delivery.result.deliveryId, (.delivery.result.messages[]? | "[\(.type)] \(.subject // "")\n\(.body)\n\(.payload)"), (.deferred[]? | "[deferred status] \(.body)"), (.error // empty | "[error] \(.)")' <scratchpad>/orca-wait-<run_id>.json
     ```
-    It wraps `check --wait` (`--types` alone is not reliable: a
-    heartbeat can end the wait, see "Known constraints"): it acknowledges
+    It wraps `check --wait` with no `--types`, so the wait covers every
+    message type and Orca's terminal injection does not fire while it is
+    armed (see "Known constraints"); it acknowledges
     batches of only heartbeats and statuses and keeps waiting, and exits 0
     with `{"delivery": ..., "deferred": [...]}` on a Delivery that holds a
     `worker_done`, `escalation`, `question`, or another type, 2 on timeout
@@ -282,14 +283,16 @@ workflow's choices and what live tests showed.
     deferred). The first wait after a start uses `--wake-on-status`, so the
     first `status` is read without waiting for `worker_done`.
   - An agent without background re-invocation (e.g. Codex): the same
-    `check --wait --types ...` in the foreground with a timeout below its
+    `check --wait` (no `--types`) in the foreground with a timeout below its
     tool-call limit, repeated while the turn lasts; when the turn must end,
     say that supervision pauses and how to resume
     (`orca orchestration check --run <id>` on the next turn).
-  - Orca injects "You have N orchestration message(s)..." into the
-    coordinator terminal for `status` and `heartbeat` alike (see "Known
-    constraints"), which can wake an idle session; treat it as an aid, not
-    the primary monitoring mechanism.
+  - Orca writes "You have N orchestration message(s)..." and then Enter
+    into an idle coordinator terminal for any unread message type that no
+    live `check --wait` covers (see "Known constraints"). `orca-wait.sh`
+    covers all types, so the injection can still happen only while no wait
+    is armed (between a wake-up and the re-arm, or when not monitoring);
+    treat it as an aid, not the primary monitoring mechanism.
   - Do not assume backgrounding a shell command re-invokes any agent.
   - On timeout: check `worker-show` (state, `observation.agentWait`,
     `lastHeartbeatAt`) and the child's screen; `TASKS.md` is a checklist, not
@@ -387,9 +390,14 @@ release -> worktree removal.
 - With `--terminal` binding, the Claude screen's effort indicator showed
   `[medium]` for both `--effort low` and `--effort high`; treat effort as
   unconfirmed from the screen alone unless another source shows it.
-- Orca's "You have N orchestration message(s)..." terminal injection fires
-  for `status` and `heartbeat` alike, so it wakes the coordinator on noise,
-  not only on real progress.
+- Read from Orca 1.4.216's bundled code: when the coordinator terminal is
+  idle and holds unread messages, Orca writes "You have N orchestration
+  message(s). Run `orca orchestration check --run <id>`." into it and, 500 ms
+  later, Enter, which submits the coordinator's prompt. It skips only the
+  message types that a live `check --wait` covers, and a waiter without
+  `--types` covers every type. `orca-wait.sh` passes no `--types`, so the
+  injection can still happen only while no wait is armed (between a wake-up
+  and the re-arm, or when not monitoring).
 - Children sometimes send a heartbeat or repeat an earlier question instead
   of the first `status` message; answer duplicates consistently, and ask
   again for the status if it never arrives.

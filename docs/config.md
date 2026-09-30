@@ -122,9 +122,15 @@ non-documentation edit.
 
 `scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]`
 is the coordinator's wait. It runs `orca orchestration check --wait` and wakes
-only on actionable mail. With `--out`, it also writes the printed object to
-`<path>` atomically (an earlier file there is removed at startup), for callers
-whose captured stdout is not pure JSON:
+only on actionable mail. It passes no `--types`, so the wait covers every
+message type: Orca writes "You have N orchestration message(s)..." and then
+Enter into an idle coordinator terminal for any unread type that no live
+`check --wait` covers, and a typed wait would leave the other types to that
+injection (read from Orca 1.4.216's bundled code). `--wake-on-status` and
+`monitor.wakeOnStatus` only change which batches wake the caller. With
+`--out`, it also writes the printed object to `<path>` atomically (an earlier
+file there is removed at startup), for callers whose captured stdout is not
+pure JSON:
 
 - A Delivery that holds a `worker_done`, `escalation`, `question`, or any
   other type except `heartbeat` and `status` (and `status` too with

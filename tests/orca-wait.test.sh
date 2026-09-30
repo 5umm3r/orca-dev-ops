@@ -8,12 +8,16 @@ repo="$tmp/dev/my repo"; mkdir -p "$repo"; new_repo "$repo"
 cd "$repo" || exit 1
 
 # wait_for <ORCA_STUB_CHECK> [<option>...]: runs the script in $repo; prints "<exit code> <check calls>"
-# and keeps stdout in $tmp/out.
+# and keeps stdout in $tmp/out. Every run's calls are also kept in $all.
+all="$tmp/all-calls"
+: > "$all"
 wait_for() {
   : > "$ORCA_STUB_LOG"
   ORCA_STUB_CHECK=$1; export ORCA_STUB_CHECK; shift
   sh "$script" --run run_1 "$@" > "$tmp/out" 2> "$tmp/err"
-  printf '%s %s' "$?" "$(grep -c '^orchestration check' "$ORCA_STUB_LOG")"
+  set -- "$?"
+  cat "$ORCA_STUB_LOG" >> "$all"
+  printf '%s %s' "$1" "$(grep -c '^orchestration check' "$ORCA_STUB_LOG")"
 }
 # out <jq filter>: applied to the script's stdout.
 out() { jq -c "$1" "$tmp/out" 2>/dev/null; }
@@ -28,8 +32,8 @@ result "worker_done: the Delivery is printed" '"dlv_1"' "$(out .delivery.result.
 result "worker_done: nothing deferred" '[]' "$(out .deferred)"
 lacks "worker_done: not acknowledged" "$(call 1)" "--ack"
 has "worker_done: blocking wait" "$(call 1)" "--wait"
-has "worker_done: default types" "$(call 1)" "--types worker_done,escalation,question --timeout-ms"
-has "worker_done: default timeout from the built-in settings" "$(call 1)" "--run run_1 --wait --types worker_done,escalation,question --timeout-ms 590000"
+lacks "worker_done: no type filter" "$(call 1)" "--types"
+has "worker_done: default timeout from the built-in settings" "$(call 1)" "--run run_1 --wait --timeout-ms 590000"
 result "escalation wakes" "0 1" "$(wait_for escalation)"
 result "question wakes" "0 1" "$(wait_for heartbeat,question)"
 result "unknown type wakes" "0 1" "$(wait_for decision)"
@@ -51,7 +55,8 @@ has "status deferred: acknowledged" "$(call 2)" "--ack dlv_1"
 result "untyped message counts as status" "0 2" "$(wait_for 'untyped worker_done')"
 result "untyped message: deferred" 1 "$(out '.deferred | length')"
 result "--wake-on-status wakes on status" "0 1" "$(wait_for 'status worker_done' --wake-on-status)"
-has "--wake-on-status: types include status" "$(call 1)" "--types worker_done,escalation,question,status"
+has "--wake-on-status: blocking wait with a timeout" "$(call 1)" "--wait --timeout-ms"
+lacks "--wake-on-status: no type filter" "$(call 1)" "--types"
 result "--wake-on-status: status not deferred" '[]' "$(out .deferred)"
 result "--wake-on-status: heartbeat still acknowledged" "0 2" "$(wait_for 'heartbeat status' --wake-on-status)"
 
@@ -74,7 +79,7 @@ result "deadline: actionable mail on the final call wakes" "0 2" "$(wait_for 'he
 
 # --- no busy loop: every call but a final acknowledgment blocks with a positive timeout
 wait_for 'heartbeat heartbeat status heartbeat timeout' --timeout-ms 30000 >/dev/null
-result "every wait blocks" 0 "$(grep '^orchestration check' "$ORCA_STUB_LOG" | grep -vc -- '--wait --types .* --timeout-ms [1-9]')"
+result "every wait blocks" 0 "$(grep '^orchestration check' "$ORCA_STUB_LOG" | grep -vc -- '--wait --timeout-ms [1-9]')"
 result "each Delivery acknowledged once" "dlv_1 dlv_2 dlv_3 dlv_4" \
   "$(grep -o -- '--ack dlv_[0-9]*' "$ORCA_STUB_LOG" | awk '{ printf "%s%s", (NR > 1 ? " " : ""), $2 }')"
 
@@ -98,7 +103,8 @@ PATH=$saved
 # --- settings: monitor defaults from .orca-dev-ops.json in the main checkout
 printf '%s\n' '{"monitor":{"wakeOnStatus":true,"timeoutMs":7000}}' > "$repo/.orca-dev-ops.json"
 result "settings: wakeOnStatus" "0 1" "$(wait_for status)"
-has "settings: timeoutMs and status type" "$(call 1)" "--types worker_done,escalation,question,status --timeout-ms 7000"
+has "settings: timeoutMs" "$(call 1)" "--wait --timeout-ms 7000"
+lacks "settings: wakeOnStatus adds no type filter" "$(call 1)" "--types"
 has "settings: --timeout-ms overrides" "$(wait_for timeout --timeout-ms 3000 >/dev/null; call 1)" "--timeout-ms 3000"
 printf '%s\n' '{"monitor":{"timeoutMs":-1}}' > "$repo/.orca-dev-ops.json"
 wait_for timeout >/dev/null
@@ -135,6 +141,7 @@ while [ "$i" -lt 100 ] && ! grep -q '^orchestration check' "$ORCA_STUB_LOG"; do 
 kill -TERM "$pid"
 wait "$pid"
 result "--out interrupted: TERM exit code" 143 "$?"
+cat "$ORCA_STUB_LOG" >> "$all"
 result "--out interrupted: no process left" gone "$(kill -0 "$pid" 2>/dev/null && echo running || echo gone)"
 result "--out interrupted: no file and no temp file" "" "$(ls -A "$tmp/res")"
 
@@ -160,5 +167,9 @@ ln -s "$(command -v jq)" "$tmp/nobin/jq"
 printf 'stale\n' > "$res"
 result "--out without orca on PATH" 1 "$(PATH="$tmp/nobin:/bin:/usr/bin" sh "$script" --run r --out "$res" >/dev/null 2>&1; echo "$?")"
 result "--out without orca on PATH: stale file removed" no "$([ -e "$res" ] && echo yes || echo no)"
+
+# --- no run passes a type filter, so the wait covers every message type
+result "check calls recorded across runs" yes "$(grep -q '^orchestration check' "$all" && echo yes || echo no)"
+result "no check call passes --types" 0 "$(grep '^orchestration check' "$all" | grep -c -- '--types')"
 
 exit "$fail"

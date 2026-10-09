@@ -107,8 +107,8 @@ path:<main checkout> --json` and blocks `orca worktree create` when the count
 is at the limit. When Orca cannot answer, or answers with a truncated list,
 the create is blocked as well (fail closed).
 
-The small-change limits apply to the coordinator's Edit and MultiEdit in the
-main checkout, counting existing uncommitted and untracked changes;
+The small-change limits apply to the coordinator's Edit in the main
+checkout, counting existing uncommitted and untracked changes;
 documentation (`*.md`, `docs/`, `references/`, `.claude/`) is not counted and
 Write stays blocked for other files. `0` blocks every direct
 non-documentation edit.

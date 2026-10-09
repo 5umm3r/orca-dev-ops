@@ -27,8 +27,8 @@
 #
 # Then prints whether Claude and Codex reach the same marker block.
 #
-# Codex launch gate (Codex plugins cannot ship hooks, so it is installed into
-# the repository):
+# Codex launch gate (Codex plugin hooks only apply to manually installed desktop
+# plugins, so the gate is installed into the repository instead):
 #   .codex/hooks/orca-launch-gate.sh and .codex/hooks/orca-lib.sh
 #                               -> copies of the plugin's hooks, always refreshed
 #                                   (plugin-owned; do not edit them)

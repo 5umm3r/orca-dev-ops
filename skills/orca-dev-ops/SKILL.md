@@ -343,7 +343,7 @@ agent session in the same task.
 Direct edits in the master checkout are allowed within these limits (the PreToolUse guard enforces them):
 
 - Documentation (`*.md` at any depth, `docs/`, `references/`, `.claude/`): any tool, any size.
-- Other files: Edit or MultiEdit only (no Write), at most `limits.smallChangeFiles` files (default 2) and `limits.smallChangeLines` changed lines (default 20) of uncommitted non-documentation change in total, counting existing uncommitted and untracked files.
+- Other files: Edit only (no Write), at most `limits.smallChangeFiles` files (default 2) and `limits.smallChangeLines` changed lines (default 20) of uncommitted non-documentation change in total, counting existing uncommitted and untracked files.
 
 Conditions: the change does not overlap an active child's declared scope, and
 the master runs the repository's required verification before committing.

@@ -11,13 +11,12 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | パス | 役割 |
 | --- | --- |
 | `skills/orca-dev-ops/SKILL.md` | マスターセッションの手順本体 |
-| `skills/orca-init/SKILL.md` | 共通の初期化手順。Codex では `$orca-init` で呼び出す |
+| `skills/orca-init/SKILL.md` | 共通の初期化手順。Claude Code では `/orca-init`、Codex では `$orca-init` で呼び出す |
 | `hooks/orca-role-context.sh` | SessionStart。master / child のどちらかをセッションへ通知する |
 | `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止する |
 | `hooks/orca-child-control.sh` | PostToolUse。`orca worktree create` 後に制御手順を注入する |
 | `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動をブロックする（Claude と Codex） |
 | `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
-| `commands/orca-init.md` | 共通の初期化スキルを参照する Claude Code 用 `/orca-init` コマンド |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
 | `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |

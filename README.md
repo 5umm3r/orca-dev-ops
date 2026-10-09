@@ -12,13 +12,12 @@ is delegated to child worktrees running either Claude or Codex.
 | Path | Role |
 | --- | --- |
 | `skills/orca-dev-ops/SKILL.md` | The master-session procedure itself |
-| `skills/orca-init/SKILL.md` | Shared repository initialization procedure; Codex's `$orca-init` skill |
+| `skills/orca-init/SKILL.md` | Shared repository initialization procedure; Claude Code's `/orca-init` and Codex's `$orca-init` skill |
 | `hooks/orca-role-context.sh` | SessionStart. Tells the session whether it is the master or a child |
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
 | `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
 | `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
-| `commands/orca-init.md` | Claude Code's `/orca-init` command, which reads the shared initialization skill |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |

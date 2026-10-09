@@ -174,7 +174,7 @@ Bash)
   cmd_has 'wrangler[[:space:]]+(deploy|delete)' && cdeny "Blocked wrangler deploy/delete. $ask"
   cmd_has 'firebase[[:space:]]+deploy' && cdeny "Blocked firebase deploy. $ask"
   ;;
-Edit|MultiEdit|Write|NotebookEdit)
+Edit|Write|NotebookEdit)
   f=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
   [ -z "$f" ] && exit 0
   [ "$role" = unknown ] && deny "$unknown"
@@ -208,9 +208,9 @@ Edit|MultiEdit|Write|NotebookEdit)
   [ "$maxf" = 1 ] && files=file || files=files
   [ "$maxl" = 1 ] && lines=line || lines=lines
   limit="Implementation happens in a child worktree (orca worktree create). This main checkout allows documentation (*.md, docs/, references/, .claude/) at any size; other files Edit only, at most $maxf $files and $maxl changed $lines uncommitted in total (limits.smallChangeFiles, limits.smallChangeLines). Documentation-only commits go directly on the base branch and push; a commit with any non-documentation file goes on a task branch, never directly on the base branch.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}"
-  case "$tool" in Edit|MultiEdit) ;; *) deny "$limit" ;; esac
-  # Lines this edit changes; empty when any edit uses replace_all.
-  n=$(printf '%s' "$input" | jq '[(.tool_input.edits // [.tool_input]) | .[] | select(.replace_all != true) | [.old_string, .new_string] | map(. // "" | split("\n") | length) | max] as $n | if ($n | length) == ((.tool_input.edits // [.tool_input]) | length) then ($n | add // 0) else empty end')
+  case "$tool" in Edit) ;; *) deny "$limit" ;; esac
+  # Lines this edit changes; empty when the edit uses replace_all.
+  n=$(printf '%s' "$input" | jq '.tool_input | select(.replace_all != true) | [.old_string, .new_string] | map(. // "" | split("\n") | length) | max')
   [ -z "$n" ] && deny "$limit"
   # Existing uncommitted changes (tracked and untracked) as "added<TAB>deleted<TAB>path"; skipped when git fails.
   if existing=$(git -C "$repo" diff HEAD --numstat 2>/dev/null); then

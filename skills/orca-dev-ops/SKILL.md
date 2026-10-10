@@ -227,6 +227,34 @@ Effort mapping (the only part to update when the CLIs change):
 | normal | `medium` | `medium` |
 | low | `low` | `low` |
 
+### Model selection guidance
+
+Guidance for the user's choice when the launch mode is `ask` or when editing
+`launch` settings. In `auto` mode the configured values apply and the gate
+denies others.
+
+- Well-scoped implementation and bug-fix tasks: Claude Sonnet 5.5 is the
+  default choice (comparable to Opus 5.5 on coding benchmarks at half the
+  price).
+- Complex, open-ended, long-running work that needs sustained judgment, large
+  refactors, and systems design: Opus 5.5.
+- High-volume investigation, classification, extraction, summarization, and
+  subagent exploration: Haiku 5.5. Not for complex agentic coding.
+
+Sources (primary):
+
+- https://www.anthropic.com/claude-sonnet-5-5 (2026-09-28): Terminal-Bench
+  4.0 Sonnet 5.5 70.6% vs Opus 5.5 66.4%; CursorBench 4.0 55.5% vs 57.8%.
+  Anthropic states Opus 5.5 "remains clearly stronger at complex, open-ended
+  work requiring sustained judgment".
+- https://www.anthropic.com/claude-haiku-5-5 (2026-10-07): Haiku 5.5
+  Terminal-Bench 4.0 39.2%; recommended for subagent tasks, with Sonnet 5.5 /
+  Opus 5.5 for complex agentic coding.
+- https://platform.claude.com/docs/en/about-claude/models/choosing-a-model
+
+Benchmark conditions (effort levels) differ between models, so measure on your
+own tasks before changing defaults.
+
 Write the task prompt to the scratchpad: the approved plan, the allowed
 files, done-when conditions (including which verification must pass —
 required, never send a prompt without it), verification commands, and the

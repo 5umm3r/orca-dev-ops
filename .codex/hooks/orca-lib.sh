@@ -136,11 +136,15 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
     if has($name) | not then empty
     elif (.[$name] | type) != "object" then "\($name) must be an object"
     else (.[$name] | keys - $allowed)[] | "unknown key \($name).\(.)" end;
+  def profile($g): if type != "object" then "profiles.\($g) must be an object"
+    else ((keys - ["model", "effort"])[] | "profiles.\($g).\(.) is not allowed"),
+      (["model", "effort"][] as $k | select((has($k) | not) or (.[$k] | word | not))
+        | "profiles.\($g).\($k) must be a non-empty string without spaces") end;
   def need($k; ok; $what): if has($k) and (.[$k] | ok | not) then "\($k) must be \($what)" else empty end;
   if length != 1 then "the file must hold exactly one JSON object"
   else .[0] | if type != "object" then "the top level must be a JSON object" else [
     ((keys - ["launch", "limits", "monitor"])[] | "unknown key \(.)"),
-    section("launch"; ["mode", "agent", "model", "effort"]),
+    section("launch"; ["mode", "agent", "model", "effort", "profiles"]),
     section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
     section("monitor"; ["wakeOnStatus", "timeoutMs"]),
     (.launch | objects | (
@@ -148,6 +152,9 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
       need("agent"; . == "claude" or . == "codex"; "\"claude\" or \"codex\""),
       need("model"; word; "a non-empty string without spaces"),
       need("effort"; word; "a non-empty string without spaces"),
+      (select(has("profiles")) | .profiles | if type != "object" then "profiles must be an object"
+        else ((keys - ["max", "high", "normal", "low"])[] | "profiles.\(.) is not allowed"),
+          (to_entries[] | select(.key | IN("max", "high", "normal", "low")) | .key as $g | .value | profile($g)) end),
       (select(.mode == "auto" and ([.agent, .model, .effort] | all(word) | not))
         | "mode \"auto\" needs agent, model, and effort")) | "launch.\(.)"),
     (.limits | objects | (

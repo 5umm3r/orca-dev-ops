@@ -42,6 +42,21 @@ printf '{"launch":{"agent":"claude","model":"claude-opus-5-5","effort":"high"}}\
 result "ask with recommendations: exit 0" 0 "$rc"
 result "ask with recommendations: mode stays ask" ask "$(printf '%s' "$out" | jq -r .launch.mode)"
 
+pfull='{"max":{"model":"claude-opus-5-5","effort":"max"},"high":{"model":"claude-opus-5-5","effort":"high"},"normal":{"model":"claude-sonnet-5-5","effort":"medium"},"low":{"model":"claude-haiku-5-5","effort":"low"}}'
+printf '{"launch":{"profiles":%s}}\n' "$pfull" > "$cfg"; show "$repo"
+result "profiles full: exit 0" 0 "$rc"
+result "profiles full: taken" "$pfull" "$(printf '%s' "$out" | jq -c .launch.profiles)"
+result "profiles full: mode stays ask" ask "$(printf '%s' "$out" | jq -r .launch.mode)"
+ppart='{"high":{"model":"claude-opus-5-5","effort":"high"},"low":{"model":"gpt-sol","effort":"low"}}'
+printf '{"launch":{"profiles":%s}}\n' "$ppart" > "$cfg"; show "$repo"
+result "profiles partial: exit 0" 0 "$rc"
+result "profiles partial: taken" "$ppart" "$(printf '%s' "$out" | jq -c .launch.profiles)"
+printf '{"launch":{"profiles":{}}}\n' > "$cfg"; show "$repo"
+result "profiles empty object: exit 0" 0 "$rc"
+printf '{"launch":{"mode":"ask"}}\n' > "$cfg"; show "$repo"
+result "profiles absent: unchanged" "$defaults" "$out"
+result "profiles absent: no key" null "$(printf '%s' "$out" | jq -c .launch.profiles)"
+
 # --- read from the main checkout, never from the worktree
 printf '{"limits":{"maxWorktrees":7}}\n' > "$cfg"
 printf '{"limits":{"maxWorktrees":99}}\n' > "$child/.orca-dev-ops.json"
@@ -95,3 +110,14 @@ result "too many arguments" 64 "$(usage show "$repo" extra)"
 result "not a repository" 65 "$(usage show "$tmp/scratch")"
 
 exit "$fail"
+invalid "profiles not an object" '{"launch":{"profiles":"max"}}' "launch.profiles must be an object"
+invalid "profiles null" '{"launch":{"profiles":null}}' "launch.profiles must be an object"
+invalid "profiles outside launch" '{"profiles":{"max":{"model":"m","effort":"high"}}}' "unknown key profiles"
+invalid "unknown grade" '{"launch":{"profiles":{"ultra":{"model":"m","effort":"high"}}}}' "launch.profiles.ultra is not allowed"
+invalid "unknown inner key" '{"launch":{"profiles":{"max":{"model":"m","effort":"high","agent":"codex"}}}}' "launch.profiles.max.agent is not allowed"
+invalid "profile not an object" '{"launch":{"profiles":{"max":"m"}}}' "launch.profiles.max must be an object"
+invalid "profile missing effort" '{"launch":{"profiles":{"max":{"model":"m"}}}}' "launch.profiles.max.effort must be a non-empty string"
+invalid "profile missing model" '{"launch":{"profiles":{"low":{"effort":"low"}}}}' "launch.profiles.low.model must be a non-empty string"
+invalid "profile numeric model" '{"launch":{"profiles":{"high":{"model":5,"effort":"high"}}}}' "launch.profiles.high.model must be a non-empty string"
+invalid "profile empty effort" '{"launch":{"profiles":{"normal":{"model":"m","effort":""}}}}' "launch.profiles.normal.effort must be a non-empty string"
+invalid "profile model with a space" '{"launch":{"profiles":{"max":{"model":"opus --x","effort":"high"}}}}' "launch.profiles.max.model must be a non-empty string"

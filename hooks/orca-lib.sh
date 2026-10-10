@@ -123,8 +123,9 @@ orca_worktrees() {
 # (see docs/config.md). It is always read from the main checkout, never from a linked worktree,
 # so a child cannot loosen its own limits by editing its copy. A missing file, or a checkout
 # whose main checkout git cannot name, means the built-in defaults (the behavior without
-# settings). An invalid file (bad JSON, an unknown key, a wrong type or value, or launch mode
-# auto without agent, model, and effort) is ignored as a whole: the defaults apply and
+# settings). An invalid file (bad JSON, an unknown key, a wrong type or value, launch mode
+# auto without agent, model, and effort, or launch.escalate without mode auto) is ignored as
+# a whole: the defaults apply and
 # ORCA_CONFIG_ERROR says why.
 ORCA_CONFIG_FILE=.orca-dev-ops.json
 ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}'
@@ -136,15 +137,11 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
     if has($name) | not then empty
     elif (.[$name] | type) != "object" then "\($name) must be an object"
     else (.[$name] | keys - $allowed)[] | "unknown key \($name).\(.)" end;
-  def profile($g): if type != "object" then "profiles.\($g) must be an object"
-    else ((keys - ["model", "effort"])[] | "profiles.\($g).\(.) is not allowed"),
-      (["model", "effort"][] as $k | select((has($k) | not) or (.[$k] | word | not))
-        | "profiles.\($g).\($k) must be a non-empty string without spaces") end;
   def need($k; ok; $what): if has($k) and (.[$k] | ok | not) then "\($k) must be \($what)" else empty end;
   if length != 1 then "the file must hold exactly one JSON object"
   else .[0] | if type != "object" then "the top level must be a JSON object" else [
     ((keys - ["launch", "limits", "monitor"])[] | "unknown key \(.)"),
-    section("launch"; ["mode", "agent", "model", "effort", "profiles"]),
+    section("launch"; ["mode", "agent", "model", "effort", "escalate"]),
     section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
     section("monitor"; ["wakeOnStatus", "timeoutMs"]),
     (.launch | objects | (
@@ -152,9 +149,11 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
       need("agent"; . == "claude" or . == "codex"; "\"claude\" or \"codex\""),
       need("model"; word; "a non-empty string without spaces"),
       need("effort"; word; "a non-empty string without spaces"),
-      (select(has("profiles")) | .profiles | if type != "object" then "profiles must be an object"
-        else ((keys - ["max", "high", "normal", "low"])[] | "profiles.\(.) is not allowed"),
-          (to_entries[] | select(.key | IN("max", "high", "normal", "low")) | .key as $g | .value | profile($g)) end),
+      (select(has("escalate")) | .escalate | if type != "object" then "escalate must be an object"
+        else ((keys - ["model", "effort"])[] | "escalate.\(.) is not allowed"),
+          (["model", "effort"][] as $k | select((has($k) | not) or (.[$k] | word | not))
+            | "escalate.\($k) must be a non-empty string without spaces") end),
+      (select(has("escalate") and .mode != "auto") | "escalate is only valid with mode \"auto\""),
       (select(.mode == "auto" and ([.agent, .model, .effort] | all(word) | not))
         | "mode \"auto\" needs agent, model, and effort")) | "launch.\(.)"),
     (.limits | objects | (

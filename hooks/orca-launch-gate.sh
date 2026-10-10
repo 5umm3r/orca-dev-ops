@@ -16,6 +16,9 @@
 # see orca-lib.sh), no transcript is read: every launch in the command is allowed only when its
 # agent, model, and effort equal launch.agent, launch.model, and launch.effort; a mismatch or a
 # value the command does not set is denied. An invalid settings file means mode `ask`.
+# With launch.escalate {model, effort} also set, a launch of launch.agent with exactly those
+# values is allowed as well, but only when the transcript holds an answered `Model` question
+# after the last successful launch (the same transcript logic as ask mode, `Model` only).
 # Misoperation prevention by string matching, not a sandbox.
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/orca-lib.sh"
 input=$(cat)
@@ -164,21 +167,42 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 orca_config_load "$cwd"
 [ -n "$ORCA_CONFIG_ERROR" ] && warn=" Settings warning: $ORCA_CONFIG_ERROR"
 want_agent=$(orca_config .launch.agent) want_model=$(orca_config .launch.model) want_effort=$(orca_config .launch.effort)
+# Set when every launch is in the default or the escalate tier and one is in the escalate tier:
+# only the answered Model question is then required, and no Agent or Effort question.
+escalating=
+what='agent, model, and effort'
 if [ "$(orca_config .launch.mode)" = auto ]; then
-  bad=$(launch_params "$cmd" | awk -F "$us" -v a="$want_agent" -v m="$want_model" -v e="$want_effort" '
-    { n++; if ($1 != a || $2 != m || $3 != e) { printf "agent %s, model %s, effort %s", ($1 == "" ? "(unset)" : $1), ($2 == "" ? "(unset)" : $2), ($3 == "" ? "(unset)" : $3); exit } }
-    END { if (!n) printf "no agent, model, or effort that could be read" }')
-  [ -z "$bad" ] && exit 0
-  deny "Blocked a child agent launch: this repository's $ORCA_CONFIG_FILE ($ORCA_CONFIG_PATH) sets launch mode auto, which allows only agent $want_agent, model $want_model, and effort $want_effort, and this launch has $bad. Launch with exactly those values (Claude: --model $want_model --effort $want_effort; Codex: -m $want_model -c model_reasoning_effort=$want_effort; worker-start: --agent $want_agent --model $want_model --effort $want_effort). To use other values, ask the user; do not edit $ORCA_CONFIG_FILE to get around this."
+  esc_model=$(orca_config .launch.escalate.model) esc_effort=$(orca_config .launch.escalate.effort)
+  tier=$(launch_params "$cmd" | awk -F "$us" -v a="$want_agent" -v m="$want_model" -v e="$want_effort" -v xm="$esc_model" -v xe="$esc_effort" '
+    { n++
+      if ($1 == a && $2 == m && $3 == e) next
+      if (xm != "" && $1 == a && $2 == xm && $3 == xe) { esc = 1; next }
+      printf "B" "agent %s, model %s, effort %s", ($1 == "" ? "(unset)" : $1), ($2 == "" ? "(unset)" : $2), ($3 == "" ? "(unset)" : $3); bad = 1; exit }
+    END { if (bad) exit
+      if (!n) printf "Bno agent, model, or effort that could be read"
+      else if (esc) printf "E" }')
+  case "$tier" in
+  "") exit 0 ;;
+  E) escalating=1 what=model ;;
+  *)
+    tiers="agent $want_agent, model $want_model, and effort $want_effort"
+    flags="Claude: --model $want_model --effort $want_effort; Codex: -m $want_model -c model_reasoning_effort=$want_effort; worker-start: --agent $want_agent --model $want_model --effort $want_effort"
+    if [ -n "$esc_model" ]; then
+      tiers="$tiers, or, only after the user answered a question with header \`Model\` in this session since the last successful launch, agent $want_agent, model $esc_model, and effort $esc_effort"
+      flags="$flags. Second tier: Claude: --model $esc_model --effort $esc_effort; Codex: -m $esc_model -c model_reasoning_effort=$esc_effort; worker-start: --agent $want_agent --model $esc_model --effort $esc_effort"
+    fi
+    deny "Blocked a child agent launch: this repository's $ORCA_CONFIG_FILE ($ORCA_CONFIG_PATH) sets launch mode auto, which allows only $tiers, and this launch has ${tier#B}. Launch with exactly those values ($flags). To use other values, ask the user; do not edit $ORCA_CONFIG_FILE to get around this." ;;
+  esac
+  how='Ask the user now with a structured question tool: AskUserQuestion in Claude Code, request_user_input or request_user_input_async in Codex. Ask one question with header `Model` (request_user_input_async has no header, so start the title with `[Model]` instead). Put the recommended option first with a label ending in "(Recommended)". Never infer or pick the answer yourself, and do not retry the launch until the user has answered.'
 fi
-if [ -n "$want_agent$want_model$want_effort" ]; then
+if [ -z "$escalating" ] && [ -n "$want_agent$want_model$want_effort" ]; then
   how="$how This repository's $ORCA_CONFIG_FILE recommends${want_agent:+ agent $want_agent}${want_model:+ model $want_model}${want_effort:+ effort $want_effort}: make those the (Recommended) options."
 fi
 
 transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
 current=$(printf '%s' "$input" | jq -r '.tool_use_id // empty')
 [ -n "$transcript" ] && [ -f "$transcript" ] && [ -r "$transcript" ] \
-  || deny "Blocked a child agent launch: the session transcript (transcript_path) is missing or unreadable, so the answers about the child's agent, model, and effort cannot be verified. $how"
+  || deny "Blocked a child agent launch: the session transcript (transcript_path) is missing or unreadable, so the answers about the child's $what cannot be verified. $how"
 
 # Transcript events in order, one per line:
 #   A<TAB><topic>        an answered question about agent, model, or effort
@@ -250,7 +274,7 @@ codex)
        .out[])' --arg current "$current" < "$transcript")
   ;;
 *)
-  deny "Blocked a child agent launch: the session transcript format is not recognized (neither a Claude Code nor a Codex transcript), so the answers about the child's agent, model, and effort cannot be verified. $how"
+  deny "Blocked a child agent launch: the session transcript format is not recognized (neither a Claude Code nor a Codex transcript), so the answers about the child's $what cannot be verified. $how"
   ;;
 esac
 
@@ -273,8 +297,11 @@ $events
 EOF
 
 missing=
-[ -n "$agent" ] || missing="$missing, Agent"
+[ -n "$escalating" ] || [ -n "$agent" ] || missing="$missing, Agent"
 [ -n "$model" ] || missing="$missing, Model"
-[ -n "$effort" ] || missing="$missing, Effort"
+[ -n "$escalating" ] || [ -n "$effort" ] || missing="$missing, Effort"
 [ -z "$missing" ] && exit 0
+if [ -n "$escalating" ]; then
+  deny "Blocked a child agent launch: this launch uses the escalate tier of $ORCA_CONFIG_FILE, and this session has no answered question about the child's Model since the last successful launch (the user must answer Model before every escalate launch; a failed launch can be retried without asking again). $how"
+fi
 deny "Blocked a child agent launch: this session has no answered question about the child's ${missing#, } since the last successful launch (the user must answer Agent, Model, and Effort before every launch; a failed launch can be retried without asking again). $how"

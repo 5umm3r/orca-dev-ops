@@ -109,6 +109,24 @@ result "invalid directory: exit 3" 3 "$rc"
 has "invalid directory: reason" "$err" "not a readable regular file"
 rmdir "$cfg"
 
+# --- opt-in keys (ORCA_CONFIG_OPT_IN, used by orca-init.sh): a suggested value is offered only
+# where adding it keeps the file valid
+# with_suggestions <file content>: the content with every suggested value added, compact.
+with_suggestions() {
+  (. "$root/hooks/orca-lib.sh"; printf '%s' "$1" | jq -c --argjson d "$ORCA_CONFIG_DEFAULTS" \
+    "def opt_in: $ORCA_CONFIG_OPT_IN;"' . as $f | reduce ($d * $f | opt_in | select(has("value"))) as $o ($f; setpath($o.path; $o.value))')
+}
+for base in '{}' '{"launch":{"mode":"ask","agent":"claude"}}' '{"launch":{'"$ea"'}}' \
+    '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"high"}}'; do
+  with_suggestions "$base" > "$cfg"; show "$repo"
+  result "opt-in suggestions on $base: still valid" 0 "$rc"
+done
+with_suggestions '{"launch":{'"$ea"'}}' > "$cfg"; show "$repo"
+result "opt-in suggestion: escalate with auto and claude" '{"model":"claude-opus-5-5","effort":"high"}' "$(printf '%s' "$out" | jq -c .launch.escalate)"
+result "opt-in suggestion: none with ask" '{"launch":{"mode":"ask","agent":"claude"}}' "$(with_suggestions '{"launch":{"mode":"ask","agent":"claude"}}')"
+result "opt-in suggestion: none with codex" null "$(with_suggestions '{"launch":{"mode":"auto","agent":"codex","model":"m","effort":"e"}}' | jq -c .launch.escalate)"
+rm -f "$cfg"
+
 # --- usage
 usage() { sh "$script" "$@" >/dev/null 2>&1; echo "$?"; }
 result "no command" 64 "$(usage)"

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install the generic "Orca worktree rules" block into a repository.
 #
-#   orca-init.sh [--apply] [--no-settings] [repo-path]
+#   orca-init.sh [--apply] [--no-settings | --settings=add | --settings=reset] [repo-path]
 #
 # Target files: <repo>/.claude/CLAUDE.md (Claude) and <repo>/AGENTS.md (Codex).
 #
@@ -48,15 +48,31 @@
 #                                   plugin default changes do not update it),
 #                                   without needing --apply; --no-settings skips
 #                                   this
-#   present                     -> never modified; validated, and an invalid file
-#                                   is reported on stderr (the hooks ignore it and
-#                                   use the built-in defaults)
+#   present, valid              -> reported as valid, then, without --settings=:
+#                                   "missing key" lines for every default the file
+#                                   lacks and every applicable suggested opt-in key
+#                                   (launch.escalate with mode auto and agent
+#                                   claude), "available key" lines for the other
+#                                   opt-in keys it lacks, "reset would change" lines
+#                                   for every value a reset changes or removes, and
+#                                   a rerun hint when a key is missing; unchanged
+#     --settings=add            -> the missing keys are added, existing values kept
+#                                   ("updated" or "up to date")
+#   present, invalid            -> reported on stderr (the hooks ignore it and use
+#                                   the built-in defaults); unchanged, also with
+#                                   --settings=add
+#   present, --settings=reset   -> copied to .orca-dev-ops.json.bak (never
+#                                   overwritten: an existing backup means no reset),
+#                                   then rewritten with the defaults as at creation
 #   main checkout unknown       -> nothing is done
-# Neither an invalid file nor a failed write changes the exit code.
+# --settings=add and --settings=reset write through a temp file and only a result
+# that passes the hooks' own check. Neither an invalid file nor a failed write
+# changes the exit code.
 #
 # Exit codes: 0 ok; 2 .claude/CLAUDE.md needs confirmation (no marker, no
 # --apply); 3 .codex/hooks.json needs confirmation (no gate entry, no
-# --apply); 64 unknown option (usage: [--apply] [--no-settings] [repo-path]);
+# --apply); 64 unknown or conflicting option (usage: [--apply] [--no-settings |
+# --settings=add | --settings=reset] [repo-path]);
 # 65 not a git repository; 66 template or plugin hook not found; 67 broken
 # marker block in .claude/CLAUDE.md; 68 malformed .codex/hooks.json.
 set -e
@@ -68,15 +84,25 @@ END='<!-- orca-worktree-rules:end -->'
 
 APPLY=0
 SETTINGS=1
+SETTINGS_MODE=
 REPO=""
+usage() { echo "usage: orca-init.sh [--apply] [--no-settings | --settings=add | --settings=reset] [repo-path]" >&2; exit 64; }
 for a in "$@"; do
   case "$a" in
     --apply) APPLY=1 ;;
     --no-settings) SETTINGS=0 ;;
-    -*) echo "unknown option: $a" >&2; echo "usage: orca-init.sh [--apply] [--no-settings] [repo-path]" >&2; exit 64 ;;
+    --settings=add | --settings=reset)
+      if [ -n "$SETTINGS_MODE" ] && [ "$SETTINGS_MODE" != "${a#--settings=}" ]; then
+        echo "conflicting options: --settings=$SETTINGS_MODE and $a" >&2; usage
+      fi
+      SETTINGS_MODE=${a#--settings=} ;;
+    -*) echo "unknown option: $a" >&2; usage ;;
     *) REPO="$a" ;;
   esac
 done
+if [ "$SETTINGS" = 0 ] && [ -n "$SETTINGS_MODE" ]; then
+  echo "conflicting options: --no-settings and --settings=$SETTINGS_MODE" >&2; usage
+fi
 [ -n "$REPO" ] || REPO=$(pwd)
 REPO=$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null) || {
   echo "not a git repository" >&2; exit 65; }
@@ -86,21 +112,102 @@ for _h in orca-launch-gate.sh orca-lib.sh; do
 done
 
 # Repository settings (.orca-dev-ops.json in the main checkout): created with every default
-# when missing (unless --no-settings), never modified when present, only validated and
-# reported. A problem does not change the exit code.
+# when missing (unless --no-settings); when present, validated and reported, and changed only
+# by --settings=add or --settings=reset. A problem does not change the exit code.
 . "$ROOT/hooks/orca-lib.sh"
+
+# settings_format: the settings JSON on stdin in the layout orca-init writes, one line per
+# section. Creation, --settings=add, and --settings=reset all write through it.
+settings_format() {
+  jq -r '
+    def flat: if type == "object" and length > 0
+      then "{ " + (to_entries | map("\(.key | tojson): \(.value | flat)") | join(", ")) + " }"
+      else tojson end;
+    (keys_unsorted | map(length) | max) as $w
+    | "{", (to_entries | map("  \(.key | tojson):" + " " * ($w - (.key | length) + 1) + (.value | flat))
+      | join(",\n")), "}"'
+}
+
+# settings_write <json>: writes <json> to the settings file through a temp file, but only when
+# the formatted result passes the loader's check; otherwise sets SETTINGS_WHY and returns 1.
+settings_write() {
+  SETTINGS_WHY= _t=$(mktemp) || { SETTINGS_WHY="could not create a temp file"; return 1; }
+  if ! printf '%s' "$1" | settings_format > "$_t" 2>/dev/null; then
+    SETTINGS_WHY="could not format the result"
+  elif _e=$(jq -rs "$ORCA_CONFIG_CHECK" "$_t" 2>/dev/null) || _e='it is not valid JSON'; [ -n "$_e" ]; then
+    SETTINGS_WHY="the result would be invalid ($_e)"
+  elif ! cat "$_t" > "$ORCA_CONFIG_PATH" 2>/dev/null; then
+    SETTINGS_WHY="could not write $ORCA_CONFIG_PATH"
+  fi
+  rm -f "$_t"
+  [ -z "$SETTINGS_WHY" ]
+}
+
+# What a valid file lacks or a reset would change, as jq definitions over the file:
+#   missing    {path, kind, value}: every default the file lacks (kind "default", at leaf
+#              level) and every applicable suggested opt-in key it lacks (kind "suggested")
+#   available  {path}: the opt-in keys the file lacks that have no applicable suggestion
+#   changes    {path, old, new}: every value in the file that a reset changes (new null: removed)
+SETTINGS_JQ='def opt_in: '"$ORCA_CONFIG_OPT_IN"';
+  def dotted: map(tostring) | join(".");
+  def absent($p): getpath($p) == null;
+  def missing: . as $f
+    | ($d | paths(type != "object") as $p | select($f | absent($p)) | {path: $p, kind: "default", value: getpath($p)}),
+      ($d * $f | opt_in | select(has("value") and (.path as $p | $f | absent($p))) | .kind = "suggested");
+  def available: . as $f | $d * $f | opt_in | select((has("value") | not) and (.path as $p | $f | absent($p)));
+  def changes: paths(type != "object") as $p | {path: $p, old: getpath($p), new: ($d | getpath($p))}
+    | select(.old != .new);
+  .[0] | '
+settings_jq() { jq -rs --argjson d "$ORCA_CONFIG_DEFAULTS" "$SETTINGS_JQ$1" "$ORCA_CONFIG_PATH"; }
+
+# settings_report: the lines a run without --settings= prints for a valid file.
+settings_report() {
+  settings_jq '(missing | "settings: missing key \(.path | dotted) (\(.kind) \(.value | tojson))"),
+    (available | "settings: available key \(.path | dotted) (no default; set by hand, see docs/config.md)"),
+    (changes | "settings: reset would change \(.path | dotted) (\(.old | tojson) -> \(if .new == null then "removed" else .new | tojson end))"),
+    (if first(missing) then "settings: rerun with --settings=add to add the missing keys, or --settings=reset to restore the defaults" else empty end)' || :
+}
+
+# settings_add: --settings=add on a valid file; adds every missing key, keeps every value.
+settings_add() {
+  _added=$(settings_jq '[missing | .path | dotted] | join(", ")') || _added=
+  _json=$(settings_jq 'reduce missing as $m ($d * .; setpath($m.path; $m.value))') || _json=
+  if [ -z "$_json" ]; then
+    echo "SETTINGS NOT UPDATED: could not read $ORCA_CONFIG_PATH; it was left unchanged." >&2
+  elif [ -z "$_added" ]; then
+    echo "up to date: $ORCA_CONFIG_PATH"
+  elif settings_write "$_json"; then
+    echo "updated: $ORCA_CONFIG_PATH (added: $_added)"
+  else
+    echo "SETTINGS NOT UPDATED: $SETTINGS_WHY; $ORCA_CONFIG_PATH was left unchanged." >&2
+  fi
+}
+
+# settings_reset: --settings=reset; backs the file up to <file>.bak (never overwritten), then
+# writes the defaults as at creation. Returns 1 when the file was not reset.
+settings_reset() {
+  _bak=$ORCA_CONFIG_PATH.bak
+  if [ -e "$_bak" ] || [ -L "$_bak" ]; then
+    echo "SETTINGS NOT RESET: $_bak already exists; move it away first" >&2; return 1
+  fi
+  if ! ( set -C; : > "$_bak" ) 2>/dev/null; then
+    echo "SETTINGS NOT RESET: could not create $_bak; $ORCA_CONFIG_PATH was left unchanged." >&2; return 1
+  fi
+  if ! cat "$ORCA_CONFIG_PATH" > "$_bak" 2>/dev/null; then
+    rm -f "$_bak"
+    echo "SETTINGS NOT RESET: could not copy $ORCA_CONFIG_PATH to $_bak; it was left unchanged." >&2; return 1
+  fi
+  if ! settings_write "$ORCA_CONFIG_DEFAULTS"; then
+    echo "SETTINGS NOT RESET: $SETTINGS_WHY; $ORCA_CONFIG_PATH was left unchanged (backup: $_bak)." >&2; return 1
+  fi
+  echo "reset: $ORCA_CONFIG_PATH (backup: $_bak)"
+}
+
 orca_config_load "$REPO" || :
 case "$ORCA_CONFIG_STATE" in
   missing)
     if [ "$SETTINGS" = 1 ] && [ -n "$ORCA_CONFIG_PATH" ]; then
-      # One line per section, from ORCA_CONFIG_DEFAULTS so the defaults have one source.
-      _settings=$(printf '%s' "$ORCA_CONFIG_DEFAULTS" | jq -r '
-        def flat: if type == "object"
-          then "{ " + (to_entries | map("\(.key | tojson): \(.value | tojson)") | join(", ")) + " }"
-          else tojson end;
-        (keys_unsorted | map(length) | max) as $w
-        | "{", (to_entries | map("  \(.key | tojson):" + " " * ($w - (.key | length) + 1) + (.value | flat))
-          | join(",\n")), "}"') || _settings=
+      _settings=$(printf '%s' "$ORCA_CONFIG_DEFAULTS" | settings_format) || _settings=
       # noclobber: a file that appears meanwhile is never overwritten.
       if [ -n "$_settings" ] && ( set -C; printf '%s\n' "$_settings" > "$ORCA_CONFIG_PATH" ) 2>/dev/null; then
         echo "created: $ORCA_CONFIG_PATH"
@@ -109,8 +216,21 @@ case "$ORCA_CONFIG_STATE" in
       fi
     fi
     ;;
-  valid) echo "settings: $ORCA_CONFIG_PATH is valid" ;;
-  invalid) echo "INVALID SETTINGS: $ORCA_CONFIG_ERROR Fix it by hand (see docs/config.md in the plugin); it was left unchanged." >&2 ;;
+  *)
+    if [ "$SETTINGS_MODE" = reset ] && settings_reset; then
+      :
+    elif [ "$ORCA_CONFIG_STATE" = invalid ]; then
+      echo "INVALID SETTINGS: $ORCA_CONFIG_ERROR Fix it by hand (see docs/config.md in the plugin); it was left unchanged." >&2
+      if [ "$SETTINGS_MODE" = add ]; then
+        echo "SETTINGS NOT UPDATED: --settings=add only adds to a valid file; only --settings=reset can replace an invalid one (it keeps a .bak backup)." >&2
+      fi
+    elif [ "$SETTINGS_MODE" = add ]; then
+      settings_add
+    else
+      echo "settings: $ORCA_CONFIG_PATH is valid"
+      settings_report
+    fi
+    ;;
 esac
 
 # A marker line is a line that STARTS with the marker text (index($0,m)==1),

@@ -81,7 +81,9 @@ asks the user once to trust new or changed hooks at its next start.
 
 When the main checkout has no `.orca-dev-ops.json`, it creates one with every
 default setting (see "Settings"); `--no-settings` skips this. An existing
-settings file is never changed, only validated.
+settings file is validated and reported, including keys a newer plugin added; it
+changes only with `--settings=add` (add the missing keys) or `--settings=reset`
+(restore the defaults, keeping a `.bak` backup).
 
 Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification

@@ -330,6 +330,120 @@ result "settings created from a worktree: in the main checkout" match "$(cmp -s 
 result "settings created from a worktree: not in the worktree" no "$([ -e "$tmp/settings-main-task/.orca-dev-ops.json" ] && echo yes || echo no)"
 result "settings created from a worktree: message names the main checkout" 1 "$(count "^created: $r/\\.orca-dev-ops\\.json$")"
 
+# --- settings report, --settings=add, --settings=reset ---
+cfg_check() { (. "$root/hooks/orca-lib.sh"; jq -rs "$ORCA_CONFIG_CHECK" "$1"); }
+r="$tmp/settings-add"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium"},"limits":{"maxWorktrees":2}}' > "$cfg"
+cp "$cfg" "$tmp/settings-before"
+run "$r"
+result "settings report: exit 0" 0 "$rc"
+result "settings report: valid line" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
+result "settings report: missing default key" 1 "$(count '^settings: missing key limits\.smallChangeLines (default 20)$')"
+result "settings report: every missing default" 4 "$(count '^settings: missing key .* (default ')"
+result "settings report: applicable suggestion" 1 "$(count '^settings: missing key launch\.escalate (suggested {"model":"claude-opus-5-5","effort":"high"})$')"
+result "settings report: no available line with every opt-in set" 0 "$(count '^settings: available key')"
+result "settings report: reset changes a value" 1 "$(count '^settings: reset would change limits\.maxWorktrees (2 -> 3)$')"
+result "settings report: reset removes a key" 1 "$(count '^settings: reset would change launch\.model ("claude-sonnet-5-5" -> removed)$')"
+result "settings report: reset would change every differing value" 5 "$(count '^settings: reset would change ')"
+result "settings report: rerun hint" 1 "$(count '^settings: rerun with --settings=add .* or --settings=reset ')"
+result "settings report: file unchanged" match "$(cmp -s "$cfg" "$tmp/settings-before" && echo match || echo diff)"
+result "settings report: rules step still runs" 1 "$(count '^created: \.claude/CLAUDE\.md$')"
+
+run "$r" --settings=add
+result "settings add: exit 0" 0 "$rc"
+result "settings add: reported" 1 "$(count "^updated: $r/\\.orca-dev-ops\\.json (added: limits\\.smallChangeFiles, limits\\.smallChangeLines, monitor\\.wakeOnStatus, monitor\\.timeoutMs, launch\\.escalate)$")"
+result "settings add: existing values kept" '2|auto|claude|claude-sonnet-5-5|medium' "$(jq -r '[.limits.maxWorktrees, .launch.mode, .launch.agent, .launch.model, .launch.effort] | map(tostring) | join("|")' "$cfg")"
+result "settings add: missing keys added" '2|20|false|590000|claude-opus-5-5|high' "$(jq -r '[.limits.smallChangeFiles, .limits.smallChangeLines, .monitor.wakeOnStatus, .monitor.timeoutMs, .launch.escalate.model, .launch.escalate.effort] | map(tostring) | join("|")' "$cfg")"
+result "settings add: result is valid" '' "$(cfg_check "$cfg")"
+result "settings add: no backup" no "$([ -e "$cfg.bak" ] && echo yes || echo no)"
+cp "$cfg" "$tmp/settings-before"
+run "$r" --settings=add
+result "settings add rerun: up to date" 1 "$(count "^up to date: $r/\\.orca-dev-ops\\.json$")"
+result "settings add rerun: file unchanged" match "$(cmp -s "$cfg" "$tmp/settings-before" && echo match || echo diff)"
+run "$r"
+result "settings complete: no missing key" 0 "$(count '^settings: missing key')"
+result "settings complete: no rerun hint" 0 "$(count '^settings: rerun')"
+result "settings complete: escalate reported as reset loss" 1 "$(count '^settings: reset would change launch\.escalate\.model ("claude-opus-5-5" -> removed)$')"
+
+r="$tmp/settings-ask"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '%s\n' '{"launch":{"mode":"ask","agent":"claude"}}' > "$cfg"
+run "$r"
+result "settings ask: suggestion not applicable" 0 "$(count '^settings: missing key launch\.escalate')"
+result "settings ask: escalate available" 1 "$(count '^settings: available key launch\.escalate (no default; set by hand, see docs/config\.md)$')"
+result "settings ask: launch.model available" 1 "$(count '^settings: available key launch\.model ')"
+result "settings ask: launch.effort available" 1 "$(count '^settings: available key launch\.effort ')"
+result "settings ask: set opt-in key not listed" 0 "$(count '^settings: available key launch\.agent ')"
+run "$r" --settings=add
+result "settings ask add: escalate not added" null "$(jq -c '.launch.escalate' "$cfg")"
+result "settings ask add: agent kept" claude "$(jq -r '.launch.agent' "$cfg")"
+result "settings ask add: result is valid" '' "$(cfg_check "$cfg")"
+r="$tmp/settings-codex"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"high"}}' > "$cfg"
+run "$r"
+result "settings codex: suggestion not applicable" 1 "$(count '^settings: available key launch\.escalate ')"
+
+r="$tmp/settings-reset"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '%s\n' '{"limits":{"maxWorktrees":5},"launch":{"mode":"ask","agent":"codex"}}' > "$cfg"
+cp "$cfg" "$tmp/settings-before"
+run "$r" --settings=reset
+result "settings reset: exit 0" 0 "$rc"
+result "settings reset: reported" 1 "$(count "^reset: $r/\\.orca-dev-ops\\.json (backup: $r/\\.orca-dev-ops\\.json\\.bak)$")"
+result "settings reset: backup holds the old file" match "$(cmp -s "$cfg.bak" "$tmp/settings-before" && echo match || echo diff)"
+result "settings reset: same as a created file" match "$(cmp -s "$cfg" "$tmp/settings-want" && echo match || echo diff)"
+result "settings reset: rules step still runs" 1 "$(count '^created: \.claude/CLAUDE\.md$')"
+printf '%s\n' '{"limits":{"maxWorktrees":4}}' > "$cfg"
+cp "$cfg" "$tmp/settings-before"; cp "$cfg.bak" "$tmp/settings-bak-before"
+run "$r" --settings=reset
+result "settings reset, backup exists: exit 0" 0 "$rc"
+result "settings reset, backup exists: refused" 1 "$(count "^SETTINGS NOT RESET: $r/\\.orca-dev-ops\\.json\\.bak already exists; move it away first$")"
+result "settings reset, backup exists: file unchanged" match "$(cmp -s "$cfg" "$tmp/settings-before" && echo match || echo diff)"
+result "settings reset, backup exists: backup unchanged" match "$(cmp -s "$cfg.bak" "$tmp/settings-bak-before" && echo match || echo diff)"
+
+r="$tmp/settings-reset-invalid"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '{bad\n' > "$cfg"
+run "$r" --settings=add
+result "settings add invalid: exit 0" 0 "$rc"
+result "settings add invalid: reported" 1 "$(count '^INVALID SETTINGS: Ignored .*not valid JSON')"
+result "settings add invalid: reset hint" 1 "$(count '^SETTINGS NOT UPDATED: .*only --settings=reset can replace an invalid')"
+result "settings add invalid: file unchanged" '{bad' "$(cat "$cfg")"
+result "settings add invalid: no backup" no "$([ -e "$cfg.bak" ] && echo yes || echo no)"
+run "$r" --settings=reset
+result "settings reset invalid: exit 0" 0 "$rc"
+result "settings reset invalid: reported" 1 "$(count "^reset: $r/\\.orca-dev-ops\\.json (backup: ")"
+result "settings reset invalid: no invalid line" 0 "$(count '^INVALID SETTINGS')"
+result "settings reset invalid: backup holds the old file" '{bad' "$(cat "$cfg.bak")"
+result "settings reset invalid: same as a created file" match "$(cmp -s "$cfg" "$tmp/settings-want" && echo match || echo diff)"
+
+r="$tmp/settings-reset-missing"; new_repo "$r"
+run "$r" --settings=reset
+result "settings reset missing: created as usual" 1 "$(count "^created: $r/\\.orca-dev-ops\\.json$")"
+result "settings reset missing: no backup" no "$([ -e "$r/.orca-dev-ops.json.bak" ] && echo yes || echo no)"
+
+r="$tmp/settings-options"; new_repo "$r"
+for opts in '--settings=add --settings=reset' '--no-settings --settings=add' '--settings=reset --no-settings' '--settings=keep' '--settings'; do
+  run "$r" $opts
+  result "settings options ($opts): exit 64" 64 "$rc"
+  result "settings options ($opts): usage" 1 "$(count '^usage: orca-init\.sh \[--apply\] \[--no-settings | --settings=add | --settings=reset\] \[repo-path\]$')"
+done
+result "settings options: nothing done" no "$([ -e "$r/.orca-dev-ops.json" ] || [ -e "$r/.claude" ] && echo yes || echo no)"
+run "$r" --settings=add --settings=add
+result "settings options: a repeated flag is accepted" 0 "$rc"
+
+# Exit codes of the rules and hooks steps are not affected by --settings=.
+r="$tmp/settings-exit"; new_repo "$r"; mkdir -p "$r/.claude"
+echo "hand-written rules, no marker" > "$r/.claude/CLAUDE.md"
+printf '%s\n' '{"limits":{"maxWorktrees":2}}' > "$r/.orca-dev-ops.json"
+run "$r" --settings=add
+result "settings exit: rules confirmation still exit 2" 2 "$rc"
+result "settings exit: settings added before" 1 "$(count '^updated: .*\.orca-dev-ops\.json (added: ')"
+run "$r" --apply --settings=reset
+result "settings exit: --apply with reset exit 0" 0 "$rc"
+mkdir -p "$r/.codex"; printf '{"hooks": \n' > "$r/.codex/hooks.json"
+rm -f "$r/.orca-dev-ops.json.bak"
+run "$r" --settings=reset
+result "settings exit: malformed hooks.json still exit 68" 68 "$rc"
+result "settings exit: reset done before" 1 "$(count '^reset: ')"
+
 # --- repo path with spaces ---
 r="$tmp/repo with spaces"; new_repo "$r"
 run "$r"

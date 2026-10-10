@@ -40,10 +40,48 @@ too and then writes the file into the main checkout. `launch.agent`,
 The written values are the defaults at creation time. A later plugin version
 that changes a default does not update the file, so the written value keeps
 applying; to follow the plugin's defaults, delete that key (or the file) or
-edit it. An existing file, valid or invalid, is never modified; `/orca-init`
-only validates and reports it. `--no-settings` skips the creation (an existing
-file is still validated). A write failure is reported on stderr and does not
-change the exit code.
+edit it. `--no-settings` skips the creation (an existing file is still
+validated). A write failure is reported on stderr and does not change the exit
+code.
+
+## An existing file: `/orca-init` reports, `--settings=` changes
+
+An existing file is validated and, by default, left unchanged. An invalid file
+is reported (`INVALID SETTINGS: ...` on stderr). For a valid file, `/orca-init`
+also reports what a newer plugin offers and what a reset would lose:
+
+- `settings: missing key <key> (default <value>)`: a key with a default that
+  the file lacks, at leaf level (for example `limits.smallChangeLines`). The
+  default applies anyway; adding it pins the current value.
+- `settings: missing key <key> (suggested <value>)`: an opt-in key with a
+  suggested value that keeps the file valid. Only `launch.escalate` has one:
+  `{"model": "claude-opus-5-5", "effort": "high"}`, offered when the file has
+  `launch.mode: "auto"` and `launch.agent: "claude"`.
+- `settings: available key <key> (no default; set by hand, see docs/config.md)`:
+  an opt-in key the file lacks with no applicable suggestion (`launch.agent`,
+  `launch.model`, `launch.effort`, and `launch.escalate` otherwise). It is never
+  added automatically.
+- `settings: reset would change <key> (<old> -> <new or removed>)`: every value
+  in the file that `--settings=reset` would change or remove.
+
+When at least one key is missing, it asks to rerun with one of these
+(`/orca-init` asks the user which; `--no-settings` cannot be combined with them):
+
+- `--settings=add` adds every `missing key` with the value shown and keeps every
+  existing value (`updated: <path> (added: ...)`, or `up to date: <path>`). The
+  added values are pinned like created ones: a later default change does not
+  update them. An invalid file is not changed; only a reset replaces it.
+- `--settings=reset` copies the file to `.orca-dev-ops.json.bak` next to it and
+  writes the defaults exactly as a newly created file (`reset: <path> (backup:
+  <bak>)`). It works on an invalid file too. When the `.bak` file already
+  exists, nothing is changed (`SETTINGS NOT RESET: ...`); move the backup away
+  first.
+
+Both write through a temp file and replace the file only when the result passes
+the same check as the hooks; otherwise the file is left unchanged and the reason
+is printed on stderr (`SETTINGS NOT UPDATED: ...` or `SETTINGS NOT RESET: ...`).
+Neither changes the exit code. The rewritten file uses the layout above, one
+line per section.
 
 ## Full example
 

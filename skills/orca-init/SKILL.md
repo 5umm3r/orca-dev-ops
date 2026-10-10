@@ -57,7 +57,8 @@ shell variables may not persist across tool calls.
 
 1. Run the script with the explicit target path. If the user asked not to
    create the repository settings file, add `--no-settings` to this and
-   every retry.
+   every retry. If the user explicitly asked to reset the settings file to
+   the defaults, add `--settings=reset` instead (see step 5).
 
    ```sh
    sh "$orca_plugin_root/scripts/orca-init.sh" "$orca_target_repo"
@@ -82,7 +83,7 @@ shell variables may not persist across tool calls.
      `sh "$orca_plugin_root/scripts/orca-init.sh" --apply "$orca_target_repo"`.
      The merge keeps the other hooks. `--apply` also appends the block to an `AGENTS.md`
      without markers, so check step 3 first and ask about both together.
-   - `64` – unknown option. `66` – template or plugin hook missing. `65` –
+   - `64` – unknown or conflicting option. `66` – template or plugin hook missing. `65` –
      outside a git repository. Report the cause and finish.
    - `67` — the marker block in `.claude/CLAUDE.md` is broken (a start marker
      without an end marker, an end marker only, or multiple blocks). The file
@@ -91,6 +92,12 @@ shell variables may not persist across tool calls.
    - `68` — `.codex/hooks.json` is not valid JSON or not a hooks file. Nothing
      under `.codex` was changed. Report the error output and tell the user to
      fix the file by hand, then run the command again.
+
+   Every rerun, including `--apply`, keeps a `--no-settings` or
+   `--settings=add` flag from the previous run. Drop `--settings=reset` once
+   a run printed `reset: ...`: the settings step runs before the exit codes
+   above, so the reset is done, and a second one finds the `.bak` file and
+   refuses.
 
 3. Check the report about `AGENTS.md` in the output.
    - `linked: AGENTS.md -> .claude/CLAUDE.md` — a new link was created. No
@@ -123,9 +130,10 @@ shell variables may not persist across tool calls.
      that Codex asks once at its next start and the gate runs only after they
      trust the hooks.
 
-5. Check the repository settings line. When the main checkout has no
+5. Check the repository settings lines. When the main checkout has no
    `.orca-dev-ops.json`, the script creates it with every default (without
-   `--apply`); an existing file is never changed (see `docs/config.md` in the
+   `--apply`); an existing file is validated and reported, and changed only
+   with `--settings=add` or `--settings=reset` (see `docs/config.md` in the
    plugin).
    - `created: <path>` — the file was created in the main checkout with the
      built-in defaults. Tell the user it can be committed and edited, and
@@ -136,10 +144,48 @@ shell variables may not persist across tool calls.
      user.
    - No line — `--no-settings` was given, or git cannot name the main
      checkout; the built-in defaults apply.
-   - `settings: ... is valid` — no action needed.
+   - `settings: ... is valid` — followed by these report lines; the file was
+     not changed:
+     - `settings: missing key <key> (default <value>)` — a default the file
+       lacks (a key a newer plugin added, or one deleted by hand).
+     - `settings: missing key <key> (suggested <value>)` — an opt-in key with
+       a value that fits the file (`launch.escalate` when the file has mode
+       `auto` and agent `claude`).
+     - `settings: available key <key> (...)` — an optional setting without a
+       default. Mention these to the user as settings they can set by hand
+       (see `docs/config.md`); they are never added automatically.
+     - `settings: reset would change <key> (<old> -> <new>)` — a value that a
+       reset changes or removes.
+     - `settings: rerun with --settings=add ...` — printed when at least one
+       `missing key` line was printed.
+
+     When at least one `missing key` line was printed, ask the user with
+     AskUserQuestion (Codex: `request_user_input`), header `Settings`, with
+     these options in this order:
+     1. "Keep as is" — no change.
+     2. "Add new keys only" — list each missing key and the value that will
+        be added; existing values are kept.
+     3. "Reset to defaults" — list the `reset would change` lines as what is
+        lost, and say the current file is kept as `.orca-dev-ops.json.bak`.
+
+     Then rerun the same command with `--settings=add` or
+     `--settings=reset` for the chosen option. Tell the user that added
+     values are pinned like created ones: a later plugin default change does
+     not update them. When no `missing key` line was printed, ask nothing; run
+     `--settings=reset` only when the user explicitly asks for it.
+   - `updated: <path> (added: ...)` / `up to date: <path>` — `--settings=add`
+     added the listed keys, or nothing was missing.
+   - `reset: <path> (backup: <bak>)` — the file now holds the defaults; the
+     old one is in `<bak>`. Tell the user they can delete the backup once
+     they no longer need it.
+   - `SETTINGS NOT UPDATED: ...` / `SETTINGS NOT RESET: ...` (stderr, exit code
+     unchanged) — the file was left unchanged. Report the reason; when the
+     `.bak` already exists, the user moves it away before a reset.
    - `INVALID SETTINGS: ...` (stderr, exit code unchanged) — the hooks ignore
      the file and use the defaults (launch mode `ask`). Report the reason to
-     the user and tell them to fix the file by hand.
+     the user and tell them to fix the file by hand, or offer
+     `--settings=reset` (it keeps a `.bak` backup); `--settings=add` does not
+     change an invalid file.
 
 Only the generic block is installed. Repository-specific rules, such as the
 list of files that must not be edited in parallel or the verification

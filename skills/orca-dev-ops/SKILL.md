@@ -86,8 +86,10 @@ does not run there.
 
 Initialization also creates `.orca-dev-ops.json` in the main checkout when it is
 missing, with every key that has a default (see "Repository settings"; no
-`--apply` needed, `--no-settings` skips it). An existing file is never
-modified, only validated.
+`--apply` needed, `--no-settings` skips it). An existing file is validated and
+its missing keys reported; the user chooses whether to add them
+(`--settings=add`) or reset the file to the defaults (`--settings=reset`, with a
+`.bak` backup).
 
 ## Repository settings
 

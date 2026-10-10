@@ -129,6 +129,12 @@ orca_worktrees() {
 # ORCA_CONFIG_ERROR says why.
 ORCA_CONFIG_FILE=.orca-dev-ops.json
 ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}'
+# The opt-in keys (those without a default), for orca-init.sh: a jq filter over the effective
+# settings (the defaults merged with a valid file) that emits one {path} per key, with a
+# suggested "value" only when adding that value to the file keeps it valid. The hooks do not use it.
+ORCA_CONFIG_OPT_IN='{path: ["launch", "agent"]}, {path: ["launch", "model"]}, {path: ["launch", "effort"]},
+  ({path: ["launch", "escalate"]} + if .launch.mode == "auto" and .launch.agent == "claude"
+    then {value: {model: "claude-opus-5-5", effort: "high"}} else {} end)'
 # Reads the slurped file (an array of its JSON values) and prints every problem, "; "-joined;
 # empty when the file is valid.
 ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;

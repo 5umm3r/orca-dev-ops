@@ -24,7 +24,7 @@ only the sections the task needs (the full orchestration guide is about
 | Step | Who | How |
 |---|---|---|
 | Plan with the user | master | Hearing, spec, file scope, acceptance tests |
-| Choose agent (claude or codex), model, and effort | user | Launch mode `ask` (default): asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named, else the settings' `launch` values, are the "(Recommended)" option; the launch gate hook blocks a launch without the answers. Launch mode `auto`: the user chose them once in `.orca-dev-ops.json`; no questions, and the gate allows only those values (see "Repository settings") |
+| Choose agent (claude or codex), model, and effort | user | Launch mode `ask` (default): asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named, else the settings' `launch` values, are the "(Recommended)" option; the launch gate hook blocks a launch without the answers. Launch mode `auto`: the user chose them once in `.orca-dev-ops.json`; no questions, and the gate allows only those values (see "Repository settings"). With `launch.escalate` set, the user also answers one `Model` question, asked only when the task meets an escalation criterion (see "Model selection guidance") |
 | Implement and test | child worktree | Started per "Starting a child" below, changes left uncommitted |
 | Control the child | master only | See "Communication and state"; never hand approval or follow-ups to the user |
 | Final review | master | See "Review, integration, cleanup" |
@@ -93,7 +93,8 @@ modified, only validated.
 
 A repository can tune this workflow with an optional `.orca-dev-ops.json` at
 its top level (full reference: `docs/config.md` in the plugin): `launch`
-(mode `ask` or `auto`, plus `agent`, `model`, `effort`), `limits`
+(mode `ask` or `auto`, plus `agent`, `model`, `effort`, and in `auto` an
+optional `escalate` with `model` and `effort`), `limits`
 (`maxWorktrees`, `smallChangeFiles`, `smallChangeLines`), and `monitor`
 (`wakeOnStatus`, `timeoutMs`). Without the file, the built-in defaults apply,
 which are the behavior this skill describes (launch mode `ask`, 3 worktrees,
@@ -207,6 +208,13 @@ For Codex, use `--command "codex -a never -s workspace-write --add-dir
   below does not apply; the value is passed as is). The gate denies any other
   value. If the task needs different values, ask the user (with the questions
   above) and have them change the settings; do not work around the gate.
+  With `launch.escalate` set, a task that meets an escalation criterion (see
+  "Model selection guidance") gets one question with header `Model`: the
+  escalate model first, labeled "(Recommended)", then the default model. Launch
+  with the model the user answered, with the configured `launch.escalate`
+  values for the escalate model; never raise the model without the answer. A
+  task that meets no criterion launches with the default values and no
+  question.
 - After start, compare requested vs effective settings. With `--terminal`,
   `worker-start` reports `launch.effective` as null, so confirm from the
   child's screen header instead (Claude: the model line; Codex: the status
@@ -231,7 +239,7 @@ Effort mapping (the only part to update when the CLIs change):
 
 Guidance for the user's choice when the launch mode is `ask` or when editing
 `launch` settings. In `auto` mode the configured values apply and the gate
-denies others.
+denies others, except the `launch.escalate` tier described below.
 
 - Well-scoped implementation and bug-fix tasks: Claude Sonnet 5.5 is the
   default choice (comparable to Opus 5.5 on coding benchmarks at half the
@@ -240,6 +248,22 @@ denies others.
   refactors, and systems design: Opus 5.5.
 - High-volume investigation, classification, extraction, summarization, and
   subagent exploration: Haiku 5.5. Not for complex agentic coding.
+
+Escalation (launch mode `auto` with `launch.escalate`): the default model
+stays the default; the escalate tier is for tasks that meet one of these
+criteria:
+
+- (a) Design decisions remain open, or the spec is ambiguous.
+- (b) The changes span several modules, or change the meaning of safety
+  mechanisms such as hooks and the launch gate.
+- (c) A long, multi-step verification loop is expected.
+- (d) The same child needed two rework Dispatches on the default model.
+
+When a criterion is met, ask one question with header `Model`; the options are
+the escalate model first with "(Recommended)", then the default model. The
+user's answer decides. The gate checks that a `Model` question was answered
+after the last successful launch, not which option was chosen, so the
+coordinator itself must launch with the model the user selected.
 
 Sources (primary):
 

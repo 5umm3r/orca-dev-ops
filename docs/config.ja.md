@@ -47,7 +47,8 @@
 
 ```json
 {
-  "launch":  { "mode": "ask", "agent": "claude", "model": "claude-opus-5-5", "effort": "high" },
+  "launch":  { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
+               "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
   "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
   "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
 }
@@ -65,6 +66,7 @@
 | `launch.agent` | `"claude"` または `"codex"` | 未設定 | 子のエージェント |
 | `launch.model` | 空白を含まない空でない文字列 | 未設定 | エージェント固有のモデル値。Claude は `--model`、Codex は `-m` / `--model` |
 | `launch.effort` | 空白を含まない空でない文字列 | 未設定 | エージェント固有のエフォート値。Claude は `--effort`、Codex は `-c model_reasoning_effort=<値>` |
+| `launch.escalate` | オブジェクト `{model, effort}` | 未設定 | 同じエージェントでの 2 つ目の起動段階。`launch.mode: "auto"` のときだけ有効。`model` と `effort` は空白を含まない空でない文字列（後述） |
 
 `ask`（デフォルト）では起動ゲートは従来どおり。子を起動するたびに、コーディネーターは
 ヘッダー `Agent`・`Model`・`Effort` の質問を 1 問ずつユーザーに出し、起動ゲートは
@@ -72,7 +74,7 @@
 このモードでの `launch.agent`・`launch.model`・`launch.effort` は、それらの質問の
 「(Recommended)」の選択肢にすぎず、ゲートの拒否メッセージがその値を示す。
 
-`auto` では質問が無くなる。ユーザーはエージェント・モデル・エフォートをこのファイルで
+`auto` では質問が無くなる（`launch.escalate` の `Model` の質問を除く）。ユーザーはエージェント・モデル・エフォートをこのファイルで
 一度だけ決め、`launch.agent`・`launch.model`・`launch.effort` は必須になる（3 つが
 揃わない `auto` はファイル全体が不正になる）。起動ゲートはトランスクリプトを読まず、
 コマンド内のすべての起動を解析し、3 つの値がすべて設定と一致する場合だけ許可する。
@@ -88,6 +90,31 @@
 値が異なる場合や、コマンドが値を指定していない場合は、期待する値を示すメッセージで
 拒否する。値は書かれたとおりに比較し、スキルのグレードからエフォートへの対応表は
 `auto` では使わない。
+
+#### `launch.escalate`
+
+`launch.escalate` は任意の `{model, effort}` で、`auto` に 2 つ目の段階を加える。
+エージェントは共通で、`launch.agent` を使う。`escalate` に `agent` キーは無い。
+`launch.mode: "auto"` でない設定に `escalate` を書くと、ファイル全体が不正になる。
+
+- 通常の起動は `launch.model` と `launch.effort` を使い、質問は出さない。
+- `launch.agent` を `escalate` のモデルとエフォートそのままで起動する場合は、直前の
+  成功した起動より後のトランスクリプトに、ヘッダー `Model` の回答済みの質問が
+  あるときだけ許可する（トランスクリプトの判定は `ask` と同じで、対象は `Model`
+  のみ。`Agent` と `Effort` の質問は要らない）。回答が無ければ拒否する。起動が
+  失敗しても回答を探す区間はリセットされないため、再試行に新しい質問は要らない。
+- コーディネーターがこの `Model` の質問を出すのは、タスクがエスカレーション基準の
+  どれかに当てはまる場合だけ。選択肢は、エスカレート先のモデルを先頭に
+  「(Recommended)」付きで、次に通常のモデルを置く。基準に当てはまらないタスクは、
+  質問せず通常の値で起動する。決めるのはユーザーの回答であり、コーディネーターが
+  自分でモデルを上げることはない。
+- エスカレーション基準: (a) 設計上の判断が残っている、または仕様があいまい。
+  (b) 変更が複数のモジュールにまたがる、またはフックや起動ゲートのような安全
+  機構の意味を変える。(c) 長く複数段階にわたる検証ループが見込まれる。
+  (d) 同じ子が通常のモデルで 2 回の手戻り Dispatch を必要とした。
+- 制限: ゲートが確かめるのは `Model` の質問に回答があったことで、どの選択肢が
+  選ばれたかではない。通常のモデルを選んだ回答と、エスカレート先を選んだ回答を
+  区別できない。
 
 ### `limits`
 
@@ -158,6 +185,8 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 - 値の型が違う、または範囲外である。
 - `launch.mode` が `"auto"` なのに `launch.agent`・`launch.model`・`launch.effort` が
   揃っていない。
+- `launch.escalate` が `model` と `effort` だけを持つオブジェクトでない、どちらかの値が
+  空白を含まない空でない文字列でない、または `launch.mode` が `"auto"` でない。
 
 不正なファイルは全体を無視し、そこからは何も採用しない。最も厳しい動作である
 launch mode `ask` を含め、組み込みのデフォルト値を使う。問題は次の場所で報告する。

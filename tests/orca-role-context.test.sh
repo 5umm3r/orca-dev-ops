@@ -35,6 +35,17 @@ printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effor
 m=$(ctx "$repo")
 has "master, auto: mode and values" "$m" "Launch mode: auto (agent codex, model gpt-sol, effort xhigh;"
 result "master, auto: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
+lacks "master, auto without escalate: no escalate tier" "$m" "escalate:"
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, auto with escalate: default tier" "$m" "Launch mode: auto (agent claude, model claude-sonnet-5-5, effort medium;"
+has "master, auto with escalate: escalate tier" "$m" "escalate: model claude-opus-5-5, effort high, only after a Model question)"
+result "master, auto with escalate: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
+printf '%s\n' '{"launch":{"mode":"ask","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, escalate without auto: launch mode ask" "$m" "Launch mode: ask"
+has "master, escalate without auto: warning" "$m" "Settings warning: Ignored $repo/.orca-dev-ops.json"
+lacks "master, escalate without auto: no escalate tier" "$m" "escalate: model"
 printf '%s\n' '{"launch":{"mode":"auto"}}' > "$repo/.orca-dev-ops.json"
 m=$(ctx "$repo")
 has "master, invalid: launch mode ask" "$m" "Launch mode: ask"

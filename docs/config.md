@@ -49,7 +49,8 @@ change the exit code.
 
 ```json
 {
-  "launch":  { "mode": "ask", "agent": "claude", "model": "claude-opus-5-5", "effort": "high" },
+  "launch":  { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
+               "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
   "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
   "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
 }
@@ -68,6 +69,7 @@ no file.
 | `launch.agent` | `"claude"` or `"codex"` | unset | The child agent |
 | `launch.model` | non-empty string without spaces | unset | The agent's own model value: Claude `--model`, Codex `-m` / `--model` |
 | `launch.effort` | non-empty string without spaces | unset | The agent's own effort value: Claude `--effort`, Codex `-c model_reasoning_effort=<value>` |
+| `launch.escalate` | object `{model, effort}` | unset | A second launch tier for the same agent, valid only with `launch.mode: "auto"`; `model` and `effort` are non-empty strings without spaces (below) |
 
 `ask` (the default) keeps the launch gate as it is: before every child launch
 the coordinator asks the user one question each with header `Agent`, `Model`,
@@ -76,7 +78,8 @@ transcript holds the answers after the last successful launch. In this mode
 `launch.agent`, `launch.model`, and `launch.effort` are only the
 "(Recommended)" option of those questions; the gate's deny message names them.
 
-`auto` removes the questions. The user decides the agent, model, and effort
+`auto` removes the questions (except the `Model` question of
+`launch.escalate`). The user decides the agent, model, and effort
 once, in this file, and `launch.agent`, `launch.model`, and `launch.effort`
 are then required (`auto` without all three makes the file invalid). The
 launch gate reads no transcript; it parses every launch in the command and
@@ -93,6 +96,33 @@ allows it only when all three values equal the configured ones:
 A different value, or a value the command does not set, is denied with a
 message naming the expected values. The values are compared as written: the
 grade-to-effort mapping of the skill does not apply in `auto`.
+
+#### `launch.escalate`
+
+`launch.escalate` is an optional `{model, effort}` that adds a second tier to
+`auto`. The agent is shared: it is `launch.agent`, and `escalate` has no
+`agent` key. `escalate` without `launch.mode: "auto"` makes the file invalid.
+
+- Default launches use `launch.model` and `launch.effort`, with no question.
+- A launch of `launch.agent` with exactly the `escalate` model and effort is
+  allowed only when the session transcript holds an answered question with
+  header `Model` after the last successful launch (the same transcript logic
+  as `ask`, `Model` only; no `Agent` or `Effort` question is needed). Without
+  that answer the launch is denied. A failed launch does not reset the window,
+  so its retry needs no new question.
+- The coordinator asks that one `Model` question only when the task meets an
+  escalation criterion; the options are the escalate model first, labeled
+  "(Recommended)", then the default model. A task that meets no criterion
+  launches with the default values and no question. The user's answer decides;
+  the coordinator never raises the model on its own.
+- Escalation criteria: (a) design decisions remain open or the spec is
+  ambiguous; (b) the changes span several modules, or change the meaning of
+  safety mechanisms such as hooks and the launch gate; (c) a long, multi-step
+  verification loop is expected; (d) the same child needed two rework
+  Dispatches on the default model.
+- Limitation: the gate checks that a `Model` question was answered, not which
+  option the user chose. It cannot tell an answer of the default model from an
+  answer of the escalate model.
 
 ### `limits`
 
@@ -164,7 +194,10 @@ The whole file is checked on every read. It is invalid when:
 - it has a key not listed above (at any level);
 - a value has the wrong type or is out of range;
 - `launch.mode` is `"auto"` without `launch.agent`, `launch.model`, and
-  `launch.effort`.
+  `launch.effort`;
+- `launch.escalate` is not an object with only `model` and `effort`, either
+  value is not a non-empty string without spaces, or `launch.mode` is not
+  `"auto"`.
 
 An invalid file is ignored as a whole; nothing is taken from it. The built-in
 defaults apply, including launch mode `ask`, which is the strictest behavior.

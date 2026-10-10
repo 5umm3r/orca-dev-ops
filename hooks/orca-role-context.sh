@@ -8,7 +8,10 @@ case "$(orca_role "$cwd")" in
 master)
   orca_config_load "$cwd"
   if [ "$(orca_config .launch.mode)" = auto ]; then
-    launch="auto (agent $(orca_config .launch.agent), model $(orca_config .launch.model), effort $(orca_config .launch.effort); no Agent/Model/Effort questions)"
+    launch="auto (agent $(orca_config .launch.agent), model $(orca_config .launch.model), effort $(orca_config .launch.effort); no Agent/Model/Effort questions"
+    esc_model=$(orca_config .launch.escalate.model)
+    [ -n "$esc_model" ] && launch="$launch; escalate: model $esc_model, effort $(orca_config .launch.escalate.effort), only after a Model question"
+    launch="$launch)"
   else
     launch='ask (Agent/Model/Effort questions before every launch)'
   fi

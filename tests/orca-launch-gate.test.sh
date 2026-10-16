@@ -56,6 +56,10 @@ check "non-Bash tool passes" allow "$(jq -n --arg cwd "$repo" '{cwd:$cwd,tool_na
 # --- Claude transcripts
 check "claude: no question denies" deny "$(input "$create" "$none")"
 check "claude: all three answered allows" allow "$(input "$create" "$all")"
+script_create='sh "$ROOT/scripts/orca-terminal-create.sh" --worktree name:cc-task --title agent --command "claude --model opus --effort high"'
+check "claude: script without answers denies" deny "$(input "$script_create" "$none")"
+check "claude: script with all three answered allows" allow "$(input "$script_create" "$all")"
+check "claude: script without a transcript denies" deny "$(input "$script_create" '')"
 two=$(transcript two claude-prompt claude-ask-two)
 check "claude: two topics denies" deny "$(input "$create" "$two")"
 msg=$(reason "$(input "$create" "$two")")
@@ -142,6 +146,22 @@ has "auto: reason names the expected values" "$msg" "agent claude, model claude-
 has "auto: reason names the launch's values" "$msg" "agent claude, model claude-sonnet-5, effort (unset)"
 has "auto: reason forbids editing the file" "$msg" "do not edit .orca-dev-ops.json"
 check "auto: not a launch still passes" allow "$(input 'git status' '')"
+
+# scripts/orca-terminal-create.sh takes the same --command and is gated like the orca command.
+tcs='"$ROOT/scripts/orca-terminal-create.sh" --worktree name:cc-x --title agent'
+okc='--command "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort high"'
+badc='--command "claude --model claude-sonnet-5 --effort high"'
+check "auto script: sh with the configured values allows" allow "$(input "sh $tcs $okc" "$none")"
+check "auto script: --command= spelling allows" allow "$(input "sh $tcs --command='claude --model claude-opus-5-5 --effort high'" '')"
+check "auto script: sh with other values denies" deny "$(input "sh $tcs $badc" "$none")"
+check "auto script: bash with other values denies" deny "$(input "bash $tcs $badc" "$none")"
+check "auto script: zsh with other values denies" deny "$(input "zsh $tcs $badc" "$none")"
+check "auto script: direct path with other values denies" deny "$(input "/opt/plugin/scripts/orca-terminal-create.sh --worktree name:x --title agent $badc" "$none")"
+check "auto script: direct path with the configured values allows" allow "$(input "/opt/plugin/scripts/orca-terminal-create.sh --worktree name:x --title agent $okc" "$none")"
+check "auto script: command without effort denies" deny "$(input "sh $tcs --command 'claude --model claude-opus-5-5'" "$none")"
+check "auto script: without an agent command passes" allow "$(input "sh $tcs --command 'npm test'" "$none")"
+check "auto script: another script passes" allow "$(input "sh \"\$ROOT/scripts/other.sh\" $badc" "$none")"
+has "auto script: reason names the launch's values" "$(reason "$(input "sh $tcs $badc" '')")" "agent claude, model claude-sonnet-5, effort high"
 
 printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"}}' > "$cfg"
 codex_cmd='codex -a never -s workspace-write --add-dir /x -c sandbox_workspace_write.network_access=true'

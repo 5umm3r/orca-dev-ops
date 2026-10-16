@@ -53,7 +53,7 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sandbox, and Claude sessions only — Codex is limited by its own sandbox
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
-- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch mode `auto` it reads no transcript and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
+- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, run directly or through `sh`/`bash`/`dash`/`zsh`, are gated the same way). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch mode `auto` it reads no transcript and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
 Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
 ## Repository setup
@@ -149,9 +149,28 @@ permission settings below in one call. On Orca 1.4.206 it cannot pass the
 Claude `--dangerously-skip-permissions` flag or the Codex `-a never
 -s workspace-write --add-dir ... -c sandbox_workspace_write.network_access=true`
 flags, so the compatible path — not a deprecated fallback, the supported route
-for these agents — is: `orca worktree create` -> `orca terminal create` with
-the full agent command -> wait for `tui-idle` -> `orca orchestration
-task-create` + `worker-start --terminal <handle> --worktree <sel>`.
+for these agents — is: `orca worktree create` -> the plugin's
+`scripts/orca-terminal-create.sh` with the full agent command (resolved the
+same way as `orca-base-ref.sh` in "Invariants") -> wait for `tui-idle` ->
+`orca orchestration task-create` + `worker-start --terminal <handle>
+--worktree <sel>`.
+
+`orca terminal create` into a worktree created moments earlier can fail with
+`Timed out waiting for terminal handle after creation` although the agent
+starts minutes later. That is not a failure, and never recreate the terminal
+by hand: that opens a second agent session in the same task. The script waits
+for the terminal (default 180 s), recreates at most once and only when
+nothing appeared, and checks for duplicates. Exit 0: one agent terminal, its
+handle on stdout (use it for `wait` and `worker-start --terminal`); 3: nothing
+appeared after one recreate (stop and report); 4: two or more agent terminals,
+all handles on stdout (keep one, close the others that have received no
+Dispatch with `orca terminal close --terminal <handle>`, then continue with
+the remaining one); 5: a terminal exists but shows no agent header (do not
+recreate; stop and report); 1: another failure. The script can run up to
+twice `--timeout` plus the create calls (about 6+ minutes by default), longer
+than a default tool-call timeout: run it with a tool timeout above that
+(Claude Code Bash: `timeout` 600000 ms), or in the background and read its
+output when it exits; never start another create while it runs.
 
 `tui-idle` can return before Orca recognizes the agent. Before
 `worker-start`, confirm with `orca terminal read --terminal <handle>` that the
@@ -166,8 +185,8 @@ called), 4 failed twice, 1 other failure.
 ```sh
 orca worktree create --name cc-<topic> --base-branch <base ref> \
   --comment "agent:claude model:<model> effort:<grade> scope:<files>" --json
-orca terminal create --worktree name:cc-<topic> --title agent \
-  --command "claude --dangerously-skip-permissions --model <model> --effort <level>" --json
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-terminal-create.sh" --worktree name:cc-<topic> --title agent \
+  --command "claude --dangerously-skip-permissions --model <model> --effort <level>"
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
 orca orchestration task-create --run <run_id> --task-title "<topic>" \
   --spec "Read <absolute prompt-file path> and execute it." --json
@@ -175,7 +194,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --run <run_id> --task <t
   --terminal <handle> --worktree name:cc-<topic>
 ```
 
-For Codex, use `--command "codex -a never -s workspace-write --add-dir
+For Codex, the script works the same way with `--command "codex -a never -s workspace-write --add-dir
 <worktree git dir> -c sandbox_workspace_write.network_access=true -m <model>
 -c model_reasoning_effort=<level>"`, where `<worktree git dir>` is
 `git -C <worktree> rev-parse --absolute-git-dir` (the per-worktree
@@ -493,3 +512,10 @@ release -> worktree removal.
   `~/.codex/sessions`), not a billing record. Claude writes one line per
   content block with the same usage, so lines are deduplicated by
   `message.id`; Codex `input_tokens` includes cached input.
+- Observed on Orca 1.4.225 with Claude Code (2026-10-16): `terminal create
+  --command` into a worktree created moments earlier returned "Timed out
+  waiting for terminal handle after creation" 3 of 3 times while the agent
+  started minutes later; `terminal list` right after showed no terminal or a
+  plain shell; recreating produced three agent sessions in one task. Existing
+  worktrees did not time out at the same time. Hence
+  `scripts/orca-terminal-create.sh`.

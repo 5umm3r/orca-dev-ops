@@ -18,6 +18,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動をブロックする（Claude と Codex） |
 | `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
+| `scripts/orca-terminal-create.sh` | 子のエージェントターミナルを作成し、`terminal create` のハンドル待ちタイムアウトでは再作成せずに待ち、重複したエージェントターミナルを検出する |
 | `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
 | `scripts/orca-wait.sh` | コーディネーター用の待機。対応が必要なメッセージで起き、heartbeat と status だけのバッチは確認応答して status を保持する |

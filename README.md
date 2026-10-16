@@ -19,6 +19,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
+| `scripts/orca-terminal-create.sh` | Creates the child's agent terminal, waits through the `terminal create` handle timeout instead of recreating, and reports duplicate agent terminals |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
 | `scripts/orca-wait.sh` | Coordinator wait: wakes on actionable mail, acknowledges heartbeat- and status-only batches and keeps the statuses |

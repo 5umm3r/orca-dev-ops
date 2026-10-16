@@ -14,6 +14,19 @@
 #   ORCA_STUB_START     space-separated outcomes of successive `orchestration worker-start` calls
 #                       (default: ok): ok, race (not a recognized agent, JSON on stdout),
 #                       race-stderr (the same as a plain message on stderr), other (another error).
+#   ORCA_STUB_TERMINALS  space-separated terminal sets of successive `terminal list` calls (default:
+#                       none; the last set repeats). A set is a comma-separated list of none (an
+#                       empty list), shell (a plain shell: no agentIdentity, no header), agent
+#                       (agentIdentity claude, header on `terminal read`), or header (no
+#                       agentIdentity, header on `terminal read`). The Nth item of a set has the
+#                       handle term_N. `terminal read` answers by the latest list call. Needs
+#                       ORCA_STUB_LOG.
+#   ORCA_STUB_TERMINALS_RECREATED  the same kind of list, used from the second `terminal create`
+#                       call on, indexed by the `terminal list` calls since that create.
+#   ORCA_STUB_CREATE    space-separated outcomes of successive `terminal create` calls (default:
+#                       ok; the last repeats): ok (handle term_1), timeout (the runtime_error
+#                       JSON on stdout, exit 1), timeout-stderr (the same on stderr), other
+#                       (another error).
 #   ORCA_STUB_WORKTREE_LIST  `worktree list`: ok (default; the git worktrees of the --repo main
 #                       checkout, main first), truncated (the same with truncated: true).
 #   ORCA_STUB_CHECK     space-separated results of successive `orchestration check` calls
@@ -27,6 +40,19 @@ fx=$ORCA_STUB_FIXTURES
 [ -n "${ORCA_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$ORCA_STUB_LOG"
 # calls <prefix>: how many logged calls, including this one, start with <prefix>.
 calls() { [ -n "${ORCA_STUB_LOG:-}" ] && grep -c "^$1" "$ORCA_STUB_LOG" || echo 1; }
+# nth <number> <word>...: the <number>th word, or the last one when there are fewer.
+nth() { k=$1; shift; while [ "$k" -gt 1 ] && [ $# -gt 1 ]; do k=$((k - 1)); shift; done; echo "$1"; }
+# list_state: the terminal set that the current `terminal list` call (or a `terminal read` after
+# it) sees, see ORCA_STUB_TERMINALS and ORCA_STUB_TERMINALS_RECREATED.
+list_state() {
+  if [ -n "${ORCA_STUB_TERMINALS_RECREATED:-}" ] && [ "$(grep -c '^terminal create' "$ORCA_STUB_LOG")" -ge 2 ]; then
+    nth "$(awk '/^terminal create/ { c = 0; next } /^terminal list/ { c++ } END { print c + 0 }' "$ORCA_STUB_LOG")" $ORCA_STUB_TERMINALS_RECREATED
+  else
+    lists=$(grep -c '^terminal list' "$ORCA_STUB_LOG" 2>/dev/null); lists=${lists:-0}
+    [ "$lists" -ge 1 ] || lists=1
+    nth "$lists" ${ORCA_STUB_TERMINALS:-none}
+  fi
+}
 case "${ORCA_STUB:-}" in
 fail) exit 1 ;;
 garbage) echo 'orca: something went wrong'; exit 0 ;;
@@ -107,7 +133,33 @@ case "$1 $2" in
       | .result.count = (.result.messages | length)' "$fx/check-delivery.json" ;;
   esac
   ;;
+"terminal list")
+  state=$(list_state)
+  jq -n --arg s "$state" '[$s | split(",") | to_entries[] | select(.value != "none") | {
+      handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w", title: "agent",
+      preview: "", connected: true, agentIdentity: (if .value == "agent" then "claude" else null end)}]
+    | {ok: true, result: {terminals: ., totalCount: length, truncated: false}}'
+  ;;
+"terminal create")
+  case "$(nth "$(calls 'terminal create')" ${ORCA_STUB_CREATE:-ok})" in
+  ok) echo '{"ok":true,"result":{"terminal":{"handle":"term_1","title":"agent"}}}' ;;
+  timeout) echo '{"code":"runtime_error","message":"Timed out waiting for terminal handle after creation"}'; exit 1 ;;
+  timeout-stderr) echo '{"code":"runtime_error","message":"Timed out waiting for terminal handle after creation"}' >&2; exit 1 ;;
+  other) echo '{"ok":false,"error":{"code":"not_found","message":"Worktree not found."}}'; exit 1 ;;
+  esac
+  ;;
 "terminal read")
+  if [ -n "${ORCA_STUB_TERMINALS:-}" ]; then
+    h=
+    while [ $# -gt 0 ]; do [ "$1" = --terminal ] && h=$2; shift; done
+    kind=
+    case "$h" in term_[0-9]*) kind=$(list_state | cut -d, -f"${h#term_}") ;; esac
+    line='$'
+    case "$kind" in agent | header) line='[Opus 5.5] | cc-task' ;; esac
+    jq -n --arg h "$h" --arg l "$line" '{ok: true, result: {terminal: {handle: $h, status: "running",
+      tail: ["", $l, "❯"], source: "screen"}}}'
+    exit 0
+  fi
   after=${ORCA_STUB_HEADER_AFTER:-1}
   line='Claude Code'
   [ "$after" != never ] && [ "$(calls 'terminal read')" -ge "$after" ] && line='[Opus 5.5] | cc-task'

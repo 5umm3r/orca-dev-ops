@@ -146,6 +146,9 @@ has "auto: reason names the expected values" "$msg" "agent claude, model claude-
 has "auto: reason names the launch's values" "$msg" "agent claude, model claude-sonnet-5, effort (unset)"
 has "auto: reason forbids editing the file" "$msg" "do not edit .orca-dev-ops.json"
 check "auto: not a launch still passes" allow "$(input 'git status' '')"
+sett="--settings '/opt/plugin/templates/child-settings.json'"
+check "auto: --settings launch with the configured values allows" allow "$(input "orca terminal create --worktree name:cc-x --title agent --command \"claude --dangerously-skip-permissions $sett --model claude-opus-5-5 --effort high\"" "$none")"
+check "auto: --settings launch with other model denies" deny "$(input "orca terminal create --worktree name:cc-x --title agent --command \"claude --dangerously-skip-permissions $sett --model claude-sonnet-5 --effort high\"" "$all")"
 
 # scripts/orca-terminal-create.sh takes the same --command and is gated like the orca command.
 tcs='"$ROOT/scripts/orca-terminal-create.sh" --worktree name:cc-x --title agent'
@@ -153,6 +156,9 @@ okc='--command "claude --dangerously-skip-permissions --model claude-opus-5-5 --
 badc='--command "claude --model claude-sonnet-5 --effort high"'
 check "auto script: sh with the configured values allows" allow "$(input "sh $tcs $okc" "$none")"
 check "auto script: --command= spelling allows" allow "$(input "sh $tcs --command='claude --model claude-opus-5-5 --effort high'" '')"
+setc="--command \"claude --dangerously-skip-permissions $sett --model claude-opus-5-5 --effort high\""
+check "auto script: --settings launch with the configured values allows" allow "$(input "sh $tcs $setc" "$none")"
+check "auto script: --settings launch with other model denies" deny "$(input "sh $tcs --command \"claude --dangerously-skip-permissions $sett --model claude-sonnet-5 --effort high\"" "$none")"
 check "auto script: sh with other values denies" deny "$(input "sh $tcs $badc" "$none")"
 check "auto script: bash with other values denies" deny "$(input "bash $tcs $badc" "$none")"
 check "auto script: zsh with other values denies" deny "$(input "zsh $tcs $badc" "$none")"

@@ -186,13 +186,19 @@ called), 4 failed twice, 1 other failure.
 orca worktree create --name cc-<topic> --base-branch <base ref> \
   --comment "agent:claude model:<model> effort:<grade> scope:<files>" --json
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-terminal-create.sh" --worktree name:cc-<topic> --title agent \
-  --command "claude --dangerously-skip-permissions --model <model> --effort <level>"
+  --command "claude --dangerously-skip-permissions --settings '${CLAUDE_PLUGIN_ROOT}/templates/child-settings.json' --model <model> --effort <level>"
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
 orca orchestration task-create --run <run_id> --task-title "<topic>" \
   --spec "Read <absolute prompt-file path> and execute it." --json
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --run <run_id> --task <task_id> \
   --terminal <handle> --worktree name:cc-<topic>
 ```
+
+The `--settings` file turns off Claude Code push notifications for the child
+only; it is required on every Claude child launch or restart like the other
+flags. Orca app notifications (banners/sounds) are not covered, because Orca
+1.4.232 has no CLI to mute a worktree. Codex children need nothing (Codex
+sends no push notification here).
 
 For Codex, the script works the same way with `--command "codex -a never -s workspace-write --add-dir
 <worktree git dir> -c sandbox_workspace_write.network_access=true -m <model>

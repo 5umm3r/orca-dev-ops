@@ -26,6 +26,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `scripts/orca-usage.sh` | Sums a child worktree's token usage from the local Claude and Codex transcripts |
 | `docs/config.md` | Reference for the repository settings file |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
+| `templates/child-settings.json` | Settings passed to child Claude sessions with `--settings`; turns off Claude Code push notifications for them |
 
 The hooks are launched through `${CLAUDE_PLUGIN_ROOT}` and resolve
 `orca-lib.sh` relative to their own location. No entries in
@@ -131,6 +132,9 @@ Codex hooks are kept.
 - Children are started as dispatched workers through
   `orca orchestration worker-start --terminal`. Fixes for review findings are
   handed over as a new Dispatch.
+- Child Claude sessions are launched with `templates/child-settings.json`
+  (`--settings`), so only the coordinator sends push notifications. Orca app
+  notifications are not affected.
 - In launch mode `ask` (the default, see "Settings"), before every child launch, the coordinator asks the user one question each
   about the child's agent, model, and effort (headers `Agent`, `Model`,
   `Effort`). The launch gate reads the session transcript and blocks the launch

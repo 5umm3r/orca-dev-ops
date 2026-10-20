@@ -25,6 +25,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `scripts/orca-usage.sh` | 子 worktree のトークン使用量を Claude と Codex のローカル transcript から集計する |
 | `docs/config.ja.md` | リポジトリ設定ファイルのリファレンス |
 | `templates/worktree-rules.md` | 設置される汎用ルールブロック |
+| `templates/child-settings.json` | 子の Claude セッションに `--settings` で渡す設定。Claude Code のプッシュ通知を無効にする |
 
 フックは `${CLAUDE_PLUGIN_ROOT}` 経由で起動し、`orca-lib.sh` を自身の位置から解決する。
 `~/.claude/settings.json` への記述は不要。
@@ -120,6 +121,9 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
   `orca repo set-base-ref` で設定する。
 - 子は `orca orchestration worker-start --terminal` によるディスパッチワーカー
   として起動する。レビュー指摘の修正は新しい Dispatch として渡す。
+- 子の Claude セッションは `templates/child-settings.json`（`--settings`）付きで
+  起動するため、プッシュ通知を送るのはコーディネーターだけになる。Orca アプリの
+  通知は影響を受けない。
 - 起動モード `ask`（デフォルト。「設定」を参照）では、子を起動するたびに、コーディネーターは子のエージェント・モデル・エフォートについて
   1 問ずつ（ヘッダー `Agent`・`Model`・`Effort`）ユーザーに質問する。起動ゲートは
   セッションのトランスクリプトを読み、直前の成功した起動より後にその回答が揃うまで

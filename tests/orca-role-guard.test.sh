@@ -291,4 +291,43 @@ check "child Edit own .orca-dev-ops.json" deny "$(jq -n --arg cwd "$child" --arg
 check "child Write .orca-dev-ops.json in a subdirectory" allow "$(write "$child/sub/.orca-dev-ops.json" "$child")"
 check "master Edit .orca-dev-ops.json within the limits" allow "$(edit_in "$lim" "$lim/.orca-dev-ops.json" 3)"
 
+# --- slow Orca CLI: the call is cut off at ORCA_CLI_TIMEOUT and the role falls back to git
+reset
+unset ORCA_STUB
+# A PATH without timeout and gtimeout, so orca_cli takes the perl branch (stock macOS).
+nobin="$tmp/nobin"; mkdir -p "$nobin"
+for d in $(printf '%s' "$PATH" | tr ':' ' '); do
+  for f in "$d"/*; do
+    [ -x "$f" ] && [ ! -d "$f" ] || continue
+    case "${f##*/}" in timeout | gtimeout) continue ;; esac
+    [ -e "$nobin/${f##*/}" ] || ln -s "$f" "$nobin/${f##*/}"
+  done
+done
+# timed <name> <allow|deny> <json> <max seconds>: check, and the guard also finishes in time.
+timed() {
+  t0=$(date +%s)
+  check "$1" "$2" "$3"
+  result "$1: finishes within $4 s" yes "$([ $(($(date +%s) - t0)) -lt "$4" ] && echo yes)"
+}
+export ORCA_CLI_TIMEOUT=1 ORCA_STUB_DELAY=5
+if command -v perl >/dev/null 2>&1; then
+  saved_path=$PATH
+  PATH=$nobin
+  result "slow Orca: no timeout or gtimeout on PATH" no "$(command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 && echo yes || echo no)"
+  timed "slow Orca (perl bound), git fallback: master Write README" allow "$(write "$repo/README.md")" 4
+  timed "slow Orca (perl bound), git fallback: master edit within limits" allow "$(edit "$repo/src/a.sh" 5)" 4
+  timed "slow Orca (perl bound), git fallback: child git commit" deny "$(run 'git commit -m x')" 4
+  PATH=$saved_path
+else
+  echo "SKIP slow Orca (perl bound): perl is missing"
+fi
+timed "slow Orca (default PATH), git fallback: master Write README" allow "$(write "$repo/README.md")" 4
+timed "slow Orca (default PATH), git fallback: child git commit" deny "$(run 'git commit -m x')" 4
+# The stub answers within the bound: Orca's answer counts as before.
+export ORCA_CLI_TIMEOUT=3 ORCA_STUB_DELAY=1
+timed "Orca within the bound: master Write README" allow "$(write "$repo/README.md")" 4
+timed "Orca within the bound: child git commit" deny "$(run 'git commit -m x')" 4
+timed "Orca within the bound: master Write src" deny "$(write "$repo/src/new.sh")" 4
+unset ORCA_CLI_TIMEOUT ORCA_STUB_DELAY
+
 exit "$fail"

@@ -4,6 +4,7 @@
 #   ORCA_STUB_FIXTURES  directory holding the fixture JSON files
 #   ORCA_STUB           fail    -> no output, exit 1 (Orca unreachable)
 #                       garbage -> non-JSON output, exit 0
+#   ORCA_STUB_DELAY     seconds to sleep before answering any call (default: none)
 #   ORCA_STUB_MAP       file of "<physical path><TAB><main|linked>" lines: the worktrees Orca knows.
 #                       `worktree current` answers for the deepest entry containing the cwd.
 #   ORCA_STUB_BASE_REF  worktreeBaseRef returned by `repo show` (default: null)
@@ -53,6 +54,8 @@ list_state() {
     nth "$lists" ${ORCA_STUB_TERMINALS:-none}
   fi
 }
+# The sleep's output is closed so a killed stub does not leave it holding the caller's pipe.
+[ -n "${ORCA_STUB_DELAY:-}" ] && sleep "$ORCA_STUB_DELAY" >/dev/null 2>&1
 case "${ORCA_STUB:-}" in
 fail) exit 1 ;;
 garbage) echo 'orca: something went wrong'; exit 0 ;;

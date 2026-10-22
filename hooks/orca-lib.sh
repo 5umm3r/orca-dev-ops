@@ -16,11 +16,15 @@ ORCA_MARKER='orca-worktree-rules:start'
 
 orca_under() { case "$1/" in "$2"/*) return 0 ;; esac; return 1; }
 
-# orca_cli <args>: the orca CLI, bounded by timeout(1) when one is installed.
+# orca_cli <args>: the orca CLI, bounded to ${ORCA_CLI_TIMEOUT:-5} seconds by timeout(1),
+# gtimeout, or perl's alarm (stock macOS has only perl); unbounded only when none exists.
+# The variable exists so tests can use a short bound.
 orca_cli() {
   command -v orca >/dev/null 2>&1 || return 127
-  if command -v timeout >/dev/null 2>&1; then timeout 5 orca "$@"
-  elif command -v gtimeout >/dev/null 2>&1; then gtimeout 5 orca "$@"
+  _t=${ORCA_CLI_TIMEOUT:-5}
+  if command -v timeout >/dev/null 2>&1; then timeout "$_t" orca "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$_t" orca "$@"
+  elif command -v perl >/dev/null 2>&1; then perl -e 'alarm shift; exec @ARGV' "$_t" orca "$@"
   else orca "$@"
   fi
 }

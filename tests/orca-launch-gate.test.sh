@@ -178,66 +178,115 @@ check "auto codex: other model denies" deny "$(input "orca terminal create --com
 check "auto codex: missing effort denies" deny "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol\"" "$all")"
 check "auto codex: claude denies" deny "$(input 'orca terminal create --command "claude --model gpt-sol --effort xhigh"' "$all")"
 
-# launch.escalate: the default tier as above; the escalate tier only after an answered Model question.
-printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"
+# Mode semi-auto with launch.escalate: the default tier as above; the escalate tier only after an
+# answered Model question.
+printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"
 dflt='orca terminal create --worktree name:cc-x --command "claude --model claude-sonnet-5-5 --effort medium"'
 esc='orca terminal create --worktree name:cc-x --command "claude --model claude-opus-5-5 --effort high"'
 mans=$(transcript mans claude-prompt claude-ask-two)
-check "escalate: default values allow without a transcript" allow "$(input "$dflt" '')"
-check "escalate: default values allow without answers" allow "$(input "$dflt" "$none")"
-check "escalate: escalate values deny without a Model answer" deny "$(input "$esc" "$none")"
-check "escalate: escalate values allow after an answered Model question" allow "$(input "$esc" "$mans")"
-check "escalate: --flag=value spelling allows after a Model answer" allow \
+check "semi-auto escalate: default values allow without a transcript" allow "$(input "$dflt" '')"
+check "semi-auto escalate: default values allow without answers" allow "$(input "$dflt" "$none")"
+check "semi-auto escalate: escalate values deny without a Model answer" deny "$(input "$esc" "$none")"
+check "semi-auto escalate: escalate values allow after an answered Model question" allow "$(input "$esc" "$mans")"
+check "semi-auto escalate: --flag=value spelling allows after a Model answer" allow \
   "$(input 'orca terminal create --command "claude --model=claude-opus-5-5 --effort=high"' "$mans")"
-check "escalate: Model answer before the last launch denies" deny \
+check "semi-auto escalate: Model answer before the last launch denies" deny \
   "$(input "$esc" "$(transcript esc-stale claude-prompt claude-ask-two claude-launch-ok)")"
-check "escalate: Model answer after a launch allows" allow \
+check "semi-auto escalate: Model answer after a launch allows" allow \
   "$(input "$esc" "$(transcript esc-fresh claude-prompt claude-launch-ok claude-ask-two)")"
-check "escalate: declined question denies" deny "$(input "$esc" "$(transcript esc-declined claude-prompt claude-ask-declined)")"
-check "escalate: missing transcript denies" deny "$(input "$esc" '')"
-check "escalate: nonexistent transcript denies" deny "$(input "$esc" "$tmp/scratch/nowhere.jsonl")"
-check "escalate: unknown transcript format denies" deny "$(input "$esc" "$(transcript esc-unknown unknown)")"
-check "escalate: other model denies" deny "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort high"' "$mans")"
-check "escalate: escalate model with default effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5 --effort medium"' "$mans")"
-check "escalate: default model with escalate effort denies" deny "$(input 'orca terminal create --command "claude --model claude-sonnet-5-5 --effort high"' "$mans")"
-check "escalate: other agent denies" deny "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$mans")"
-check "escalate: second launch mismatching denies" deny "$(input "$esc && orca terminal create --command 'claude --model x --effort high'" "$mans")"
-check "escalate: default and escalate launch together need the answer" deny "$(input "$dflt && $esc" "$none")"
-check "escalate: default and escalate launch together allow with it" allow "$(input "$dflt && $esc" "$mans")"
-check "escalate: worker-start escalate values allow after a Model answer" allow \
+check "semi-auto escalate: declined question denies" deny "$(input "$esc" "$(transcript esc-declined claude-prompt claude-ask-declined)")"
+check "semi-auto escalate: missing transcript denies" deny "$(input "$esc" '')"
+check "semi-auto escalate: nonexistent transcript denies" deny "$(input "$esc" "$tmp/scratch/nowhere.jsonl")"
+check "semi-auto escalate: unknown transcript format denies" deny "$(input "$esc" "$(transcript esc-unknown unknown)")"
+check "semi-auto escalate: other model denies" deny "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort high"' "$mans")"
+check "semi-auto escalate: escalate model with default effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5 --effort medium"' "$mans")"
+check "semi-auto escalate: default model with escalate effort denies" deny "$(input 'orca terminal create --command "claude --model claude-sonnet-5-5 --effort high"' "$mans")"
+check "semi-auto escalate: other agent denies" deny "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$mans")"
+check "semi-auto escalate: second launch mismatching denies" deny "$(input "$esc && orca terminal create --command 'claude --model x --effort high'" "$mans")"
+check "semi-auto escalate: default and escalate launch together need the answer" deny "$(input "$dflt && $esc" "$none")"
+check "semi-auto escalate: default and escalate launch together allow with it" allow "$(input "$dflt && $esc" "$mans")"
+check "semi-auto escalate: worker-start escalate values allow after a Model answer" allow \
   "$(input 'orca orchestration worker-start --task t --agent claude --model claude-opus-5-5 --effort high' "$mans")"
-check "escalate: worker-start with = allows after a Model answer" allow \
+check "semi-auto escalate: worker-start with = allows after a Model answer" allow \
   "$(input 'orca orchestration worker-start --agent=claude --model=claude-opus-5-5 --effort=high' "$mans")"
-check "escalate: worker-start escalate values deny without it" deny \
+check "semi-auto escalate: worker-start escalate values deny without it" deny \
   "$(input 'orca orchestration worker-start --agent claude --model claude-opus-5-5 --effort high' "$none")"
-check "escalate: worker-start default values allow without a transcript" allow \
+check "semi-auto escalate: worker-start default values allow without a transcript" allow \
   "$(input 'orca orchestration worker-start --agent claude --model claude-sonnet-5-5 --effort medium' '')"
-check "escalate: worker-start other agent denies" deny \
+check "semi-auto escalate: worker-start other agent denies" deny \
   "$(input 'orca orchestration worker-start --agent codex --model claude-opus-5-5 --effort high' "$mans")"
 msg=$(reason "$(input "$esc" "$none")")
-has "escalate: reason names the Model question" "$msg" "no answered question about the child's Model"
-result "escalate: reason does not ask for Agent or Effort" no "$(printf '%s' "$msg" | grep -qF 'Agent, Model' && echo yes || echo no)"
+has "semi-auto escalate: reason names the Model question" "$msg" "no answered question about the child's Model"
+result "semi-auto escalate: reason does not ask for Agent or Effort" no "$(printf '%s' "$msg" | grep -qF 'Agent, Model' && echo yes || echo no)"
 msg=$(reason "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort low"' "$mans")")
-has "escalate: reason names the default tier" "$msg" "agent claude, model claude-sonnet-5-5, and effort medium"
-has "escalate: reason names the escalate tier" "$msg" "agent claude, model claude-opus-5-5, and effort high"
-has "escalate: reason requires the Model question" "$msg" "answered a question with header \`Model\`"
+has "semi-auto escalate: reason names the default tier" "$msg" "agent claude, model claude-sonnet-5-5, and effort medium"
+has "semi-auto escalate: reason names the escalate tier" "$msg" "agent claude, model claude-opus-5-5, and effort high"
+has "semi-auto escalate: reason requires the Model question" "$msg" "answered a question with header \`Model\`"
+has "semi-auto escalate: reason names the mode" "$msg" "sets launch mode semi-auto,"
 codex_all=$(transcript cx-esc codex-prompt codex-sync-answered)
-check "escalate: codex flags with escalate values deny when launch.agent is claude" deny \
+check "semi-auto escalate: codex flags with escalate values deny when launch.agent is claude" deny \
   "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$codex_all")"
-printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh","escalate":{"model":"gpt-sol-pro","effort":"max"}}}' > "$cfg"
+printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"codex","model":"gpt-sol","effort":"xhigh","escalate":{"model":"gpt-sol-pro","effort":"max"}}}' > "$cfg"
 cxesc="orca terminal create --command \"$codex_cmd -m gpt-sol-pro -c model_reasoning_effort=max\""
-check "escalate codex agent: default values allow without answers" allow \
+check "semi-auto escalate codex agent: default values allow without answers" allow \
   "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol -c model_reasoning_effort=xhigh\"" '')"
-check "escalate codex agent: escalate values deny without answers" deny "$(input "$cxesc" "$none")"
-check "escalate codex agent: escalate values allow after a Model answer" allow "$(input "$cxesc" "$codex_all")"
-check "escalate codex agent: --model and --config allow after a Model answer" allow \
+check "semi-auto escalate codex agent: escalate values deny without answers" deny "$(input "$cxesc" "$none")"
+check "semi-auto escalate codex agent: escalate values allow after a Model answer" allow "$(input "$cxesc" "$codex_all")"
+check "semi-auto escalate codex agent: --model and --config allow after a Model answer" allow \
   "$(input "orca terminal create --command \"$codex_cmd --model gpt-sol-pro --config model_reasoning_effort=max\"" "$codex_all")"
-check "escalate codex agent: stale Model answer denies" deny \
+check "semi-auto escalate codex agent: stale Model answer denies" deny \
   "$(input "$cxesc" "$(transcript cx-esc-stale codex-prompt codex-sync-answered codex-launch-ok)")"
-check "escalate codex agent: worker-start escalate values allow after a Model answer" allow \
+check "semi-auto escalate codex agent: worker-start escalate values allow after a Model answer" allow \
   "$(input 'orca orchestration worker-start --agent codex --model gpt-sol-pro --effort max' "$codex_all")"
-check "escalate codex agent: claude with escalate values denies" deny \
+check "semi-auto escalate codex agent: claude with escalate values denies" deny \
   "$(input 'orca terminal create --command "claude --model gpt-sol-pro --effort max"' "$mans")"
+
+# Mode semi-auto without launch.escalate: the same as auto without it.
+printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-opus-5-5","effort":"high"}}' > "$cfg"
+check "semi-auto: matching launch allows without a transcript" allow "$(input "$ok" '')"
+check "semi-auto: other model denies" deny "$(input 'orca terminal create --command "claude --model claude-sonnet-5 --effort high"' "$all")"
+has "semi-auto: reason names the mode" "$(reason "$(input 'orca terminal create --command "claude --model x --effort high"' '')")" \
+  "sets launch mode semi-auto, which allows only agent claude, model claude-opus-5-5, and effort high,"
+
+# Mode auto with launch.escalate: either tier without a question; the transcript is never read.
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"
+check "auto escalate: escalate values allow without a transcript" allow "$(input "$esc" '')"
+check "auto escalate: escalate values allow with a nonexistent transcript" allow "$(input "$esc" "$tmp/scratch/nowhere.jsonl")"
+check "auto escalate: escalate values allow without a Model answer" allow "$(input "$esc" "$none")"
+check "auto escalate: escalate values allow with an unknown transcript format" allow "$(input "$esc" "$(transcript auto-esc-unknown unknown)")"
+check "auto escalate: --flag=value spelling allows" allow \
+  "$(input 'orca terminal create --command "claude --model=claude-opus-5-5 --effort=high"' '')"
+check "auto escalate: default values allow without a transcript" allow "$(input "$dflt" '')"
+check "auto escalate: default and escalate launch together allow" allow "$(input "$dflt && $esc" "$none")"
+check "auto escalate: worker-start escalate values allow" allow \
+  "$(input 'orca orchestration worker-start --task t --agent claude --model claude-opus-5-5 --effort high' '')"
+check "auto escalate: worker-start default values allow" allow \
+  "$(input 'orca orchestration worker-start --agent claude --model claude-sonnet-5-5 --effort medium' '')"
+check "auto escalate: other model denies" deny "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort high"' "$mans")"
+check "auto escalate: escalate model with default effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5 --effort medium"' "$mans")"
+check "auto escalate: default model with escalate effort denies" deny "$(input 'orca terminal create --command "claude --model claude-sonnet-5-5 --effort high"' "$mans")"
+check "auto escalate: missing effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5"' "$mans")"
+check "auto escalate: other agent denies" deny "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$mans")"
+check "auto escalate: worker-start other agent denies" deny \
+  "$(input 'orca orchestration worker-start --agent codex --model claude-opus-5-5 --effort high' "$mans")"
+check "auto escalate: second launch mismatching denies" deny "$(input "$esc && orca terminal create --command 'claude --model x --effort high'" "$mans")"
+msg=$(reason "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort low"' "$mans")")
+has "auto escalate: reason lists both tiers" "$msg" \
+  "sets launch mode auto, which allows only agent claude, model claude-sonnet-5-5, and effort medium, or agent claude, model claude-opus-5-5, and effort high, and this launch has"
+result "auto escalate: reason has no Model clause" no "$(printf '%s' "$msg" | grep -qF 'header `Model`' && echo yes || echo no)"
+has "auto escalate: reason names the flags" "$msg" "Second tier: Claude: --model claude-opus-5-5 --effort high"
+has "auto escalate: reason forbids editing the file" "$msg" "To use other values, ask the user; do not edit .orca-dev-ops.json to get around this."
+printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh","escalate":{"model":"gpt-sol-pro","effort":"max"}}}' > "$cfg"
+check "auto escalate codex agent: escalate values allow without a transcript" allow "$(input "$cxesc" '')"
+check "auto escalate codex agent: escalate values allow without answers" allow "$(input "$cxesc" "$none")"
+check "auto escalate codex agent: default values allow" allow \
+  "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol -c model_reasoning_effort=xhigh\"" '')"
+check "auto escalate codex agent: worker-start escalate values allow" allow \
+  "$(input 'orca orchestration worker-start --agent codex --model gpt-sol-pro --effort max' '')"
+check "auto escalate codex agent: claude with escalate values denies" deny \
+  "$(input 'orca terminal create --command "claude --model gpt-sol-pro --effort max"' '')"
+check "auto escalate codex agent: other effort denies" deny \
+  "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol-pro -c model_reasoning_effort=xhigh\"" '')"
 
 # launch.escalate with mode ask makes the file invalid: ask mode applies, the escalate tier is not recognized.
 printf '%s\n' '{"launch":{"mode":"ask","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"

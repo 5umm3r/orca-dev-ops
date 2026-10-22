@@ -24,7 +24,7 @@ only the sections the task needs (the full orchestration guide is about
 | Step | Who | How |
 |---|---|---|
 | Plan with the user | master | Hearing, spec, file scope, acceptance tests |
-| Choose agent (claude or codex), model, and effort | user | Launch mode `ask` (default): asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named, else the settings' `launch` values, are the "(Recommended)" option; the launch gate hook blocks a launch without the answers. Launch mode `auto`: the user chose them once in `.orca-dev-ops.json`; no questions, and the gate allows only those values (see "Repository settings"). With `launch.escalate` set, the user also answers one `Model` question, asked only when the task meets an escalation criterion (see "Model selection guidance") |
+| Choose agent (claude or codex), model, and effort | user | Launch mode `ask` (default): asked every time after plan approval, one question each with header `Agent`, `Model`, `Effort`; values the user already named, else the settings' `launch` values, are the "(Recommended)" option; the launch gate hook blocks a launch without the answers. Launch mode `semi-auto`: the user chose them once in `.orca-dev-ops.json`; no questions, and the gate allows only those values (see "Repository settings"). With `launch.escalate` set, the user also answers one `Model` question, asked only when the task meets an escalation criterion (see "Model selection guidance"). Launch mode `auto`: the same configured values and no questions at all; with `launch.escalate` set, the coordinator itself picks the default or the escalate tier by the escalation criteria |
 | Implement and test | child worktree | Started per "Starting a child" below, changes left uncommitted |
 | Control the child | master only | See "Communication and state"; never hand approval or follow-ups to the user |
 | Final review | master | See "Review, integration, cleanup" |
@@ -53,7 +53,7 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sandbox, and Claude sessions only — Codex is limited by its own sandbox
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
-- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, run directly or through `sh`/`bash`/`dash`/`zsh`, are gated the same way). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch mode `auto` it reads no transcript and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
+- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, run directly or through `sh`/`bash`/`dash`/`zsh`, are gated the same way). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch modes `semi-auto` and `auto` it reads no transcript for the default tier and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); with `launch.escalate` set, the `launch.agent` with the escalate model and effort is allowed as well: in `auto` without reading the transcript, in `semi-auto` only after an answered `Model` question since the last successful launch. Anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
 Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
 ## Repository setup
@@ -95,8 +95,8 @@ its missing keys reported; the user chooses whether to add them
 
 A repository can tune this workflow with an optional `.orca-dev-ops.json` at
 its top level (full reference: `docs/config.md` in the plugin): `launch`
-(mode `ask` or `auto`, plus `agent`, `model`, `effort`, and in `auto` an
-optional `escalate` with `model` and `effort`), `limits`
+(mode `ask`, `semi-auto`, or `auto`, plus `agent`, `model`, `effort`, and in
+`semi-auto` or `auto` an optional `escalate` with `model` and `effort`), `limits`
 (`maxWorktrees`, `smallChangeFiles`, `smallChangeLines`), and `monitor`
 (`wakeOnStatus`, `timeoutMs`). Without the file, the built-in defaults apply,
 which are the behavior this skill describes (launch mode `ask`, 3 worktrees,
@@ -230,7 +230,7 @@ For Codex, the script works the same way with `--command "codex -a never -s work
   Never infer or pick the values yourself. The launch gate hook blocks a
   launch until these answers exist in this session after the last successful
   launch; retrying a failed launch needs no new question.
-- Launch mode `auto`: do not ask; launch with exactly the configured
+- Launch mode `semi-auto`: do not ask; launch with exactly the configured
   `launch.agent`, `launch.model`, and `launch.effort` (the effort mapping
   below does not apply; the value is passed as is). The gate denies any other
   value. If the task needs different values, ask the user (with the questions
@@ -242,6 +242,18 @@ For Codex, the script works the same way with `--command "codex -a never -s work
   values for the escalate model; never raise the model without the answer. A
   task that meets no criterion launches with the default values and no
   question.
+- Launch mode `auto`: do not ask; launch with exactly the configured
+  `launch.agent`, `launch.model`, and `launch.effort`, or, with
+  `launch.escalate` set and a task that meets an escalation criterion (see
+  "Model selection guidance"), with `launch.agent` and the configured
+  `launch.escalate` model and effort. The coordinator decides the tier; the
+  values are passed as is, and the gate denies any other value. Record the
+  decision in the worktree `--comment` (`tier:escalate reason:(<criterion
+  letter>)`, e.g. `tier:escalate reason:(b)`, or `tier:default`) and state the
+  chosen tier and criterion in the launch report to the user. If the task
+  needs values outside both tiers, ask the user (with the questions above) and
+  have them change the settings; do not work around the gate. Without
+  `launch.escalate`, `auto` behaves like `semi-auto`.
 - After start, compare requested vs effective settings. With `--terminal`,
   `worker-start` reports `launch.effective` as null, so confirm from the
   child's screen header instead (Claude: the model line; Codex: the status
@@ -265,8 +277,10 @@ Effort mapping (the only part to update when the CLIs change):
 ### Model selection guidance
 
 Guidance for the user's choice when the launch mode is `ask` or when editing
-`launch` settings. In `auto` mode the configured values apply and the gate
-denies others, except the `launch.escalate` tier described below.
+`launch` settings. In `semi-auto` and `auto` modes the configured values apply
+and the gate denies others, except the `launch.escalate` tier described below:
+in `semi-auto` the user picks it with one `Model` question, in `auto` the
+coordinator picks it without a question.
 
 - Well-scoped implementation and bug-fix tasks: Claude Sonnet 5.5 is the
   default choice (comparable to Opus 5.5 on coding benchmarks at half the
@@ -276,9 +290,9 @@ denies others, except the `launch.escalate` tier described below.
 - High-volume investigation, classification, extraction, summarization, and
   subagent exploration: Haiku 5.5. Not for complex agentic coding.
 
-Escalation (launch mode `auto` with `launch.escalate`): the default model
-stays the default; the escalate tier is for tasks that meet one of these
-criteria:
+Escalation (launch mode `semi-auto` or `auto` with `launch.escalate`): the
+default model stays the default; the escalate tier is for tasks that meet one
+of these criteria:
 
 - (a) Design decisions remain open, or the spec is ambiguous.
 - (b) The changes span several modules, or change the meaning of safety
@@ -286,11 +300,18 @@ criteria:
 - (c) A long, multi-step verification loop is expected.
 - (d) The same child needed two rework Dispatches on the default model.
 
-When a criterion is met, ask one question with header `Model`; the options are
-the escalate model first with "(Recommended)", then the default model. The
-user's answer decides. The gate checks that a `Model` question was answered
-after the last successful launch, not which option was chosen, so the
-coordinator itself must launch with the model the user selected.
+In `semi-auto`, when a criterion is met, ask one question with header `Model`;
+the options are the escalate model first with "(Recommended)", then the
+default model. The user's answer decides. The gate checks that a `Model`
+question was answered after the last successful launch, not which option was
+chosen, so the coordinator itself must launch with the model the user
+selected.
+
+In `auto`, ask nothing: the coordinator applies the same criteria (a)-(d)
+itself and launches on the escalate tier when one is met, on the default tier
+otherwise. The gate allows either tier without reading the transcript, so the
+decision rests on the coordinator; record it in the worktree `--comment` and
+the launch report (see "Starting a child").
 
 Sources (primary):
 

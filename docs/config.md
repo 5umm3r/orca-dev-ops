@@ -56,7 +56,7 @@ also reports what a newer plugin offers and what a reset would lose:
 - `settings: missing key <key> (suggested <value>)`: an opt-in key with a
   suggested value that keeps the file valid. Only `launch.escalate` has one:
   `{"model": "claude-opus-5-5", "effort": "high"}`, offered when the file has
-  `launch.mode: "auto"` and `launch.agent: "claude"`.
+  `launch.mode` `"semi-auto"` or `"auto"` and `launch.agent: "claude"`.
 - `settings: available key <key> (no default; set by hand, see docs/config.md)`:
   an opt-in key the file lacks with no applicable suggestion (`launch.agent`,
   `launch.model`, `launch.effort`, and `launch.escalate` otherwise). It is never
@@ -95,7 +95,9 @@ line per section.
 ```
 
 Every key is optional; a missing key takes its default. `{}` is the same as
-no file.
+no file. With `"mode": "auto"` as here, the coordinator launches the escalate
+tier without a question when a task meets an escalation criterion; use
+`"semi-auto"` to have the user answer a `Model` question first.
 
 ## Keys
 
@@ -103,11 +105,11 @@ no file.
 
 | Key | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `launch.mode` | `"ask"` or `"auto"` | `"ask"` | How the coordinator chooses the child's agent, model, and effort (below) |
+| `launch.mode` | `"ask"`, `"semi-auto"`, or `"auto"` | `"ask"` | How the coordinator chooses the child's agent, model, and effort (below) |
 | `launch.agent` | `"claude"` or `"codex"` | unset | The child agent |
 | `launch.model` | non-empty string without spaces | unset | The agent's own model value: Claude `--model`, Codex `-m` / `--model` |
 | `launch.effort` | non-empty string without spaces | unset | The agent's own effort value: Claude `--effort`, Codex `-c model_reasoning_effort=<value>` |
-| `launch.escalate` | object `{model, effort}` | unset | A second launch tier for the same agent, valid only with `launch.mode: "auto"`; `model` and `effort` are non-empty strings without spaces (below) |
+| `launch.escalate` | object `{model, effort}` | unset | A second launch tier for the same agent, valid only with `launch.mode` `"semi-auto"` or `"auto"`; `model` and `effort` are non-empty strings without spaces (below) |
 
 `ask` (the default) keeps the launch gate as it is: before every child launch
 the coordinator asks the user one question each with header `Agent`, `Model`,
@@ -116,12 +118,13 @@ transcript holds the answers after the last successful launch. In this mode
 `launch.agent`, `launch.model`, and `launch.effort` are only the
 "(Recommended)" option of those questions; the gate's deny message names them.
 
-`auto` removes the questions (except the `Model` question of
-`launch.escalate`). The user decides the agent, model, and effort
-once, in this file, and `launch.agent`, `launch.model`, and `launch.effort`
-are then required (`auto` without all three makes the file invalid). The
-launch gate reads no transcript; it parses every launch in the command and
-allows it only when all three values equal the configured ones:
+`semi-auto` and `auto` remove the questions (`semi-auto` keeps only the
+`Model` question of `launch.escalate`; `auto` asks nothing). The user decides
+the agent, model, and effort once, in this file, and `launch.agent`,
+`launch.model`, and `launch.effort` are then required (`semi-auto` or `auto`
+without all three makes the file invalid). For the default tier the launch
+gate reads no transcript; it parses every launch in the command and allows it
+only when all three values equal the configured ones:
 
 - `orca terminal create --command "<value>"`: each `claude` or `codex` command
   in `<value>`. Claude: `--model <m>` and `--effort <e>`. Codex: `-m <m>` or
@@ -133,34 +136,49 @@ allows it only when all three values equal the configured ones:
 
 A different value, or a value the command does not set, is denied with a
 message naming the expected values. The values are compared as written: the
-grade-to-effort mapping of the skill does not apply in `auto`.
+grade-to-effort mapping of the skill does not apply in `semi-auto` or
+`auto`. Without `launch.escalate`, `semi-auto` and `auto` behave the same; they
+differ only in how the escalate tier is chosen (below).
 
 #### `launch.escalate`
 
 `launch.escalate` is an optional `{model, effort}` that adds a second tier to
-`auto`. The agent is shared: it is `launch.agent`, and `escalate` has no
-`agent` key. `escalate` without `launch.mode: "auto"` makes the file invalid.
+`semi-auto` and `auto`. The agent is shared: it is `launch.agent`, and
+`escalate` has no `agent` key. `escalate` with any other `launch.mode` makes
+the file invalid.
 
 - Default launches use `launch.model` and `launch.effort`, with no question.
-- A launch of `launch.agent` with exactly the `escalate` model and effort is
-  allowed only when the session transcript holds an answered question with
-  header `Model` after the last successful launch (the same transcript logic
-  as `ask`, `Model` only; no `Agent` or `Effort` question is needed). Without
-  that answer the launch is denied. A failed launch does not reset the window,
-  so its retry needs no new question.
-- The coordinator asks that one `Model` question only when the task meets an
-  escalation criterion; the options are the escalate model first, labeled
-  "(Recommended)", then the default model. A task that meets no criterion
-  launches with the default values and no question. The user's answer decides;
-  the coordinator never raises the model on its own.
-- Escalation criteria: (a) design decisions remain open or the spec is
-  ambiguous; (b) the changes span several modules, or change the meaning of
-  safety mechanisms such as hooks and the launch gate; (c) a long, multi-step
-  verification loop is expected; (d) the same child needed two rework
-  Dispatches on the default model.
-- Limitation: the gate checks that a `Model` question was answered, not which
-  option the user chose. It cannot tell an answer of the default model from an
-  answer of the escalate model.
+- The escalate tier is for tasks that meet an escalation criterion: (a) design
+  decisions remain open or the spec is ambiguous; (b) the changes span several
+  modules, or change the meaning of safety mechanisms such as hooks and the
+  launch gate; (c) a long, multi-step verification loop is expected; (d) the
+  same child needed two rework Dispatches on the default model. A task that
+  meets no criterion launches with the default values.
+- `semi-auto`: the user decides. A launch of `launch.agent` with exactly the
+  `escalate` model and effort is allowed only when the session transcript
+  holds an answered question with header `Model` after the last successful
+  launch (the same transcript logic as `ask`, `Model` only; no `Agent` or
+  `Effort` question is needed). Without that answer the launch is denied. A
+  failed launch does not reset the window, so its retry needs no new question.
+  The coordinator asks that one `Model` question only when the task meets a
+  criterion; the options are the escalate model first, labeled
+  "(Recommended)", then the default model. The coordinator never raises the
+  model on its own.
+- `auto`: the coordinator decides, with no question. It applies the same
+  criteria itself and launches on the escalate tier when one is met. The gate
+  allows a launch of `launch.agent` with exactly the `escalate` model and
+  effort without reading the transcript. The coordinator records the chosen
+  tier and criterion in the worktree comment and in its launch report.
+- Limitation: in `semi-auto` the gate checks that a `Model` question was
+  answered, not which option the user chose, so it cannot tell an answer of
+  the default model from an answer of the escalate model. In `auto` the gate
+  allows either tier, so whether a criterion was met rests on the
+  coordinator's judgment.
+
+Migration: from v1.11.0, a file with `"mode": "auto"` and `escalate` launches
+the escalate tier without a question when the coordinator judges a criterion
+met. Set `"mode": "semi-auto"` to keep the previous behavior (one `Model`
+question before every escalate launch).
 
 ### `limits`
 
@@ -231,11 +249,11 @@ The whole file is checked on every read. It is invalid when:
   level is not an object;
 - it has a key not listed above (at any level);
 - a value has the wrong type or is out of range;
-- `launch.mode` is `"auto"` without `launch.agent`, `launch.model`, and
-  `launch.effort`;
+- `launch.mode` is `"semi-auto"` or `"auto"` without `launch.agent`,
+  `launch.model`, and `launch.effort`;
 - `launch.escalate` is not an object with only `model` and `effort`, either
-  value is not a non-empty string without spaces, or `launch.mode` is not
-  `"auto"`.
+  value is not a non-empty string without spaces, or `launch.mode` is neither
+  `"semi-auto"` nor `"auto"`.
 
 An invalid file is ignored as a whole; nothing is taken from it. The built-in
 defaults apply, including launch mode `ask`, which is the strictest behavior.

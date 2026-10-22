@@ -50,6 +50,12 @@ result "escalate: mode stays auto" auto "$(printf '%s' "$out" | jq -r .launch.mo
 printf '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium"}}\n' > "$cfg"; show "$repo"
 result "escalate absent: exit 0" 0 "$rc"
 result "escalate absent: no key" null "$(printf '%s' "$out" | jq -c .launch.escalate)"
+printf '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium"}}\n' > "$cfg"; show "$repo"
+result "semi-auto: exit 0" 0 "$rc"
+result "semi-auto: mode taken" semi-auto "$(printf '%s' "$out" | jq -r .launch.mode)"
+printf '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":%s}}\n' "$esc" > "$cfg"; show "$repo"
+result "semi-auto escalate: exit 0" 0 "$rc"
+result "semi-auto escalate: taken" "$esc" "$(printf '%s' "$out" | jq -c .launch.escalate)"
 
 # --- read from the main checkout, never from the worktree
 printf '{"limits":{"maxWorktrees":7}}\n' > "$cfg"
@@ -76,17 +82,19 @@ invalid "array" '[]' "top level must be a JSON object"
 invalid "unknown top-level key" '{"limits":{"maxWorktrees":9},"sandbox":{}}' "unknown key sandbox"
 invalid "unknown nested key" '{"launch":{"mode":"ask","dangerouslySkipPermissions":true}}' "unknown key launch.dangerouslySkipPermissions"
 invalid "section not an object" '{"monitor":true}' "monitor must be an object"
-invalid "bad mode" '{"launch":{"mode":"yolo"}}' 'launch.mode must be "ask" or "auto"'
+invalid "bad mode" '{"launch":{"mode":"yolo"}}' 'launch.mode must be "ask", "semi-auto", or "auto"'
 invalid "bad agent" '{"launch":{"agent":"gemini"}}' 'launch.agent must be "claude" or "codex"'
 invalid "empty model" '{"launch":{"model":""}}' "launch.model must be a non-empty string"
 invalid "model with a space" '{"launch":{"model":"opus --dangerously-skip-permissions"}}' "launch.model must be a non-empty string"
 invalid "numeric effort" '{"launch":{"effort":3}}' "launch.effort must be a non-empty string"
 invalid "auto without effort" '{"launch":{"mode":"auto","agent":"claude","model":"claude-opus-5-5"}}' 'mode "auto" needs agent, model, and effort'
 invalid "auto alone" '{"launch":{"mode":"auto"}}' 'mode "auto" needs agent, model, and effort'
+invalid "semi-auto without effort" '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-opus-5-5"}}' 'launch.mode "semi-auto" needs agent, model, and effort'
+invalid "semi-auto alone" '{"launch":{"mode":"semi-auto"}}' 'mode "semi-auto" needs agent, model, and effort'
 invalid "profiles is an unknown launch key" '{"launch":{"profiles":{"max":{"model":"m","effort":"high"}}}}' "unknown key launch.profiles"
 ea='"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium"'
-invalid "escalate with mode ask" '{"launch":{"mode":"ask","escalate":{"model":"m","effort":"high"}}}' 'launch.escalate is only valid with mode "auto"'
-invalid "escalate without a mode" '{"launch":{"agent":"claude","model":"m","effort":"low","escalate":{"model":"m2","effort":"high"}}}' 'launch.escalate is only valid with mode "auto"'
+invalid "escalate with mode ask" '{"launch":{"mode":"ask","escalate":{"model":"m","effort":"high"}}}' 'launch.escalate is only valid with mode "semi-auto" or "auto"'
+invalid "escalate without a mode" '{"launch":{"agent":"claude","model":"m","effort":"low","escalate":{"model":"m2","effort":"high"}}}' 'launch.escalate is only valid with mode "semi-auto" or "auto"'
 invalid "escalate with an unknown key" '{"launch":{'"$ea"',"escalate":{"model":"m","effort":"high","agent":"codex"}}}' "launch.escalate.agent is not allowed"
 invalid "escalate without effort" '{"launch":{'"$ea"',"escalate":{"model":"m"}}}' "launch.escalate.effort must be a non-empty string"
 invalid "escalate without model" '{"launch":{'"$ea"',"escalate":{"effort":"high"}}}' "launch.escalate.model must be a non-empty string"
@@ -123,6 +131,10 @@ for base in '{}' '{"launch":{"mode":"ask","agent":"claude"}}' '{"launch":{'"$ea"
 done
 with_suggestions '{"launch":{'"$ea"'}}' > "$cfg"; show "$repo"
 result "opt-in suggestion: escalate with auto and claude" '{"model":"claude-opus-5-5","effort":"high"}' "$(printf '%s' "$out" | jq -c .launch.escalate)"
+with_suggestions '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium"}}' > "$cfg"; show "$repo"
+result "opt-in suggestion: semi-auto and claude still valid" 0 "$rc"
+result "opt-in suggestion: escalate with semi-auto and claude" '{"model":"claude-opus-5-5","effort":"high"}' "$(printf '%s' "$out" | jq -c .launch.escalate)"
+result "opt-in suggestion: none with semi-auto and codex" null "$(with_suggestions '{"launch":{"mode":"semi-auto","agent":"codex","model":"m","effort":"e"}}' | jq -c .launch.escalate)"
 result "opt-in suggestion: none with ask" '{"launch":{"mode":"ask","agent":"claude"}}' "$(with_suggestions '{"launch":{"mode":"ask","agent":"claude"}}')"
 result "opt-in suggestion: none with codex" null "$(with_suggestions '{"launch":{"mode":"auto","agent":"codex","model":"m","effort":"e"}}' | jq -c .launch.escalate)"
 rm -f "$cfg"

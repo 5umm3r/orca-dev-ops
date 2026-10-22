@@ -1,6 +1,7 @@
 #!/bin/sh
-# PreToolUse(Bash) launch gate: a session starts a child agent only after the user answered a
-# structured question about the child's agent, model, and effort in this session.
+# PreToolUse(Bash) launch gate: in launch mode `ask` (the default), a session starts a child
+# agent only after the user answered a structured question about the child's agent, model, and
+# effort in this session.
 #
 # Runs for Claude Code (plugin hook) and Codex (repository hook installed by orca-init.sh, which
 # copies this file and orca-lib.sh into <repo>/.codex/hooks/). A launch is a simple command
@@ -14,13 +15,17 @@
 # `[Effort]`. A failed launch does not reset that window. Missing or unreadable transcripts and
 # unknown transcript formats are denied. Allow is silent; deny is the hookSpecificOutput JSON,
 # which Claude and Codex both honor (never `allow` or `ask`: Codex fails open on those).
-# With launch mode `auto` in the repository's .orca-dev-ops.json (read from the main checkout,
-# see orca-lib.sh), no transcript is read: every launch in the command is allowed only when its
-# agent, model, and effort equal launch.agent, launch.model, and launch.effort; a mismatch or a
-# value the command does not set is denied. An invalid settings file means mode `ask`.
+# The repository's .orca-dev-ops.json (read from the main checkout, see orca-lib.sh) sets the
+# launch mode; an invalid settings file means mode `ask`, the behavior above.
+# With launch mode `semi-auto` or `auto`, no transcript is read for the default tier: every
+# launch in the command is allowed only when its agent, model, and effort equal launch.agent,
+# launch.model, and launch.effort; a mismatch or a value the command does not set is denied.
 # With launch.escalate {model, effort} also set, a launch of launch.agent with exactly those
-# values is allowed as well, but only when the transcript holds an answered `Model` question
-# after the last successful launch (the same transcript logic as ask mode, `Model` only).
+# values is allowed as well:
+#   semi-auto  only when the transcript holds an answered `Model` question after the last
+#              successful launch (the same transcript logic as ask mode, `Model` only);
+#   auto       without reading the transcript (the coordinator chooses the tier itself).
+# Without launch.escalate, semi-auto and auto behave the same.
 # Misoperation prevention by string matching, not a sandbox.
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/orca-lib.sh"
 input=$(cat)
@@ -175,11 +180,13 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 orca_config_load "$cwd"
 [ -n "$ORCA_CONFIG_ERROR" ] && warn=" Settings warning: $ORCA_CONFIG_ERROR"
 want_agent=$(orca_config .launch.agent) want_model=$(orca_config .launch.model) want_effort=$(orca_config .launch.effort)
-# Set when every launch is in the default or the escalate tier and one is in the escalate tier:
-# only the answered Model question is then required, and no Agent or Effort question.
+# Set in semi-auto mode when every launch is in the default or the escalate tier and one is in
+# the escalate tier: only the answered Model question is then required, and no Agent or Effort
+# question.
 escalating=
 what='agent, model, and effort'
-if [ "$(orca_config .launch.mode)" = auto ]; then
+mode=$(orca_config .launch.mode)
+if [ "$mode" = semi-auto ] || [ "$mode" = auto ]; then
   esc_model=$(orca_config .launch.escalate.model) esc_effort=$(orca_config .launch.escalate.effort)
   tier=$(launch_params "$cmd" | awk -F "$us" -v a="$want_agent" -v m="$want_model" -v e="$want_effort" -v xm="$esc_model" -v xe="$esc_effort" '
     { n++
@@ -191,15 +198,21 @@ if [ "$(orca_config .launch.mode)" = auto ]; then
       else if (esc) printf "E" }')
   case "$tier" in
   "") exit 0 ;;
-  E) escalating=1 what=model ;;
+  E)
+    [ "$mode" = auto ] && exit 0
+    escalating=1 what=model ;;
   *)
     tiers="agent $want_agent, model $want_model, and effort $want_effort"
     flags="Claude: --model $want_model --effort $want_effort; Codex: -m $want_model -c model_reasoning_effort=$want_effort; worker-start: --agent $want_agent --model $want_model --effort $want_effort"
     if [ -n "$esc_model" ]; then
-      tiers="$tiers, or, only after the user answered a question with header \`Model\` in this session since the last successful launch, agent $want_agent, model $esc_model, and effort $esc_effort"
+      if [ "$mode" = auto ]; then
+        tiers="$tiers, or agent $want_agent, model $esc_model, and effort $esc_effort"
+      else
+        tiers="$tiers, or, only after the user answered a question with header \`Model\` in this session since the last successful launch, agent $want_agent, model $esc_model, and effort $esc_effort"
+      fi
       flags="$flags. Second tier: Claude: --model $esc_model --effort $esc_effort; Codex: -m $esc_model -c model_reasoning_effort=$esc_effort; worker-start: --agent $want_agent --model $esc_model --effort $esc_effort"
     fi
-    deny "Blocked a child agent launch: this repository's $ORCA_CONFIG_FILE ($ORCA_CONFIG_PATH) sets launch mode auto, which allows only $tiers, and this launch has ${tier#B}. Launch with exactly those values ($flags). To use other values, ask the user; do not edit $ORCA_CONFIG_FILE to get around this." ;;
+    deny "Blocked a child agent launch: this repository's $ORCA_CONFIG_FILE ($ORCA_CONFIG_PATH) sets launch mode $mode, which allows only $tiers, and this launch has ${tier#B}. Launch with exactly those values ($flags). To use other values, ask the user; do not edit $ORCA_CONFIG_FILE to get around this." ;;
   esac
   how='Ask the user now with a structured question tool: AskUserQuestion in Claude Code, request_user_input or request_user_input_async in Codex. Ask one question with header `Model` (request_user_input_async has no header, so start the title with `[Model]` instead). Put the recommended option first with a label ending in "(Recommended)". Never infer or pick the answer yourself, and do not retry the launch until the user has answered.'
 fi

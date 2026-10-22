@@ -7,10 +7,18 @@ base_ref="${CLAUDE_PLUGIN_ROOT:-$(dirname -- "$here")}/scripts/orca-base-ref.sh"
 case "$(orca_role "$cwd")" in
 master)
   orca_config_load "$cwd"
-  if [ "$(orca_config .launch.mode)" = auto ]; then
-    launch="auto (agent $(orca_config .launch.agent), model $(orca_config .launch.model), effort $(orca_config .launch.effort); no Agent/Model/Effort questions"
+  mode=$(orca_config .launch.mode)
+  if [ "$mode" = semi-auto ] || [ "$mode" = auto ]; then
+    launch="$mode (agent $(orca_config .launch.agent), model $(orca_config .launch.model), effort $(orca_config .launch.effort); no Agent/Model/Effort questions"
     esc_model=$(orca_config .launch.escalate.model)
-    [ -n "$esc_model" ] && launch="$launch; escalate: model $esc_model, effort $(orca_config .launch.escalate.effort), only after a Model question"
+    if [ -n "$esc_model" ]; then
+      launch="$launch; escalate: model $esc_model, effort $(orca_config .launch.escalate.effort)"
+      if [ "$mode" = auto ]; then
+        launch="$launch, chosen by the coordinator per the escalation criteria, no question"
+      else
+        launch="$launch, only after a Model question"
+      fi
+    fi
     launch="$launch)"
   else
     launch='ask (Agent/Model/Effort questions before every launch)'

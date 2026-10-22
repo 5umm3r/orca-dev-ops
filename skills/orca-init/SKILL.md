@@ -150,7 +150,7 @@ shell variables may not persist across tool calls.
        lacks (a key a newer plugin added, or one deleted by hand).
      - `settings: missing key <key> (suggested <value>)` — an opt-in key with
        a value that fits the file (`launch.escalate` when the file has mode
-       `auto` and agent `claude`).
+       `semi-auto` or `auto` and agent `claude`).
      - `settings: available key <key> (...)` — an optional setting without a
        default. Mention these to the user as settings they can set by hand
        (see `docs/config.md`); they are never added automatically.

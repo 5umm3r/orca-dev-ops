@@ -124,8 +124,8 @@ orca_worktrees() {
 # so a child cannot loosen its own limits by editing its copy. A missing file, or a checkout
 # whose main checkout git cannot name, means the built-in defaults (the behavior without
 # settings). An invalid file (bad JSON, an unknown key, a wrong type or value, launch mode
-# auto without agent, model, and effort, or launch.escalate without mode auto) is ignored as
-# a whole: the defaults apply and
+# semi-auto or auto without agent, model, and effort, or launch.escalate without mode
+# semi-auto or auto) is ignored as a whole: the defaults apply and
 # ORCA_CONFIG_ERROR says why.
 ORCA_CONFIG_FILE=.orca-dev-ops.json
 ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}'
@@ -133,7 +133,7 @@ ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"small
 # settings (the defaults merged with a valid file) that emits one {path} per key, with a
 # suggested "value" only when adding that value to the file keeps it valid. The hooks do not use it.
 ORCA_CONFIG_OPT_IN='{path: ["launch", "agent"]}, {path: ["launch", "model"]}, {path: ["launch", "effort"]},
-  ({path: ["launch", "escalate"]} + if .launch.mode == "auto" and .launch.agent == "claude"
+  ({path: ["launch", "escalate"]} + if (.launch.mode == "semi-auto" or .launch.mode == "auto") and .launch.agent == "claude"
     then {value: {model: "claude-opus-5-5", effort: "high"}} else {} end)'
 # Reads the slurped file (an array of its JSON values) and prints every problem, "; "-joined;
 # empty when the file is valid.
@@ -151,7 +151,7 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
     section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
     section("monitor"; ["wakeOnStatus", "timeoutMs"]),
     (.launch | objects | (
-      need("mode"; . == "ask" or . == "auto"; "\"ask\" or \"auto\""),
+      need("mode"; . == "ask" or . == "semi-auto" or . == "auto"; "\"ask\", \"semi-auto\", or \"auto\""),
       need("agent"; . == "claude" or . == "codex"; "\"claude\" or \"codex\""),
       need("model"; word; "a non-empty string without spaces"),
       need("effort"; word; "a non-empty string without spaces"),
@@ -159,9 +159,10 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
         else ((keys - ["model", "effort"])[] | "escalate.\(.) is not allowed"),
           (["model", "effort"][] as $k | select((has($k) | not) or (.[$k] | word | not))
             | "escalate.\($k) must be a non-empty string without spaces") end),
-      (select(has("escalate") and .mode != "auto") | "escalate is only valid with mode \"auto\""),
-      (select(.mode == "auto" and ([.agent, .model, .effort] | all(word) | not))
-        | "mode \"auto\" needs agent, model, and effort")) | "launch.\(.)"),
+      (select(has("escalate") and .mode != "semi-auto" and .mode != "auto")
+        | "escalate is only valid with mode \"semi-auto\" or \"auto\""),
+      (select((.mode == "semi-auto" or .mode == "auto") and ([.agent, .model, .effort] | all(word) | not))
+        | "mode \"\(.mode)\" needs agent, model, and effort")) | "launch.\(.)"),
     (.limits | objects | (
       need("maxWorktrees"; int and . >= 1; "an integer >= 1"),
       need("smallChangeFiles"; int and . >= 0; "an integer >= 0"),

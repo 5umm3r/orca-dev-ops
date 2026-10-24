@@ -155,6 +155,15 @@ check "child git -C <other> log" allow "$(run "git -C \"$repo\" log")"
 check "child git -C <other> checkout" deny "$(run "git -C \"$repo\" checkout -b x")"
 check "child git -C <other, spaces> commit" deny "$(run "git -C \"$repo\" commit -m x")"
 check "child git -C ../other add" deny "$(run 'git -C ../other add -A')"
+# Wrapper options are skipped like the wrapper itself.
+check "child env -i git commit" deny "$(run 'env -i git commit -m x')"
+check "child sudo -u someone git push" deny "$(run 'sudo -u someone git push')"
+check "child command -p rm -rf /tmp/x" deny "$(run 'command -p rm -rf /tmp/x')"
+check "child env -i git -C <other> checkout" deny "$(run "env -i git -C \"$repo\" checkout -b x")"
+# A quoted newline stays inside its word: the words after it belong to the same command.
+check "child multi-line echo ; git push" deny "$(run "$(printf 'echo "a\nb" ; git push')")"
+check "child multi-line echo ; rm -rf /tmp/x" deny "$(run "$(printf 'echo "a\nb" ; rm -rf /tmp/x')")"
+check "child multi-line echo argument stays allowed" allow "$(run "$(printf 'echo "a\nrm" -rf /tmp/x')")"
 
 check "child npm test" allow "$(run 'npm test')"
 check "child npm publish" deny "$(run 'npm publish')"

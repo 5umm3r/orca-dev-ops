@@ -43,7 +43,8 @@ join_lines() {
     }'
 }
 # The simple commands in $cmd, one per line, words separated by \037, with quotes and
-# backslashes resolved (no expansion). Splits on ; & | ( ) ` and unquoted newlines.
+# backslashes resolved (no expansion). Splits on ; & | ( ) ` and unquoted newlines; a quoted
+# newline is kept as \036, so a word never spans two output lines.
 commands() {
   printf '%s\n' "$cmd" | awk 'BEGIN { US = sprintf("%c", 31); q = "" }
     function word() { if (inw) { out = out (n++ ? US : "") w; w = ""; inw = 0 } }
@@ -62,12 +63,25 @@ commands() {
         if (index(";&|()`", c)) { flush(); continue }
         w = w c; inw = 1
       }
-      if (q == "") flush(); else w = w "\n"
+      if (q == "") flush(); else w = w "\036"
     }
     END { flush() }'
 }
-# Word index of the command name after assignments and wrappers such as sudo or env.
-skip_prefix='i = 1; while (i <= NF && ($i ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || $i ~ /^(sudo|command|env|nohup|time|exec|\{|!)$/)) i++; w = $i; sub(/.*\//, "", w)'
+# Word index i of the command name after assignments, `{`, `!`, and wrappers such as sudo or
+# env with their options (and the separate argument of an option that takes one; `--` ends a
+# wrapper's options); w is its basename.
+skip_prefix='i = 1
+  while (i <= NF) {
+    if ($i ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || $i ~ /^(\{|!)$/) { i++; continue }
+    if ($i !~ /^(sudo|command|env|nohup|time|exec)$/) break
+    p = $i; i++
+    while (i <= NF && $i ~ /^-/) {
+      if ($i == "--") { i++; break }
+      if ((p == "sudo" && $i ~ /^-[ugpCDhrtTUR]$/) || (p == "env" && $i ~ /^-[uCSP]$/) || (p == "exec" && $i == "-a") || (p == "time" && $i ~ /^-[of]$/)) i++
+      i++
+    }
+  }
+  w = $i; sub(/.*\//, "", w)'
 # Targets of every `rm` that has -r, -R, -f, --recursive, or --force, one per line.
 rm_targets() {
   commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix"'

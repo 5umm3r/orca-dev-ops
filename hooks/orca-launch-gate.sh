@@ -5,7 +5,8 @@
 #
 # Runs for Claude Code (plugin hook) and Codex (repository hook installed by orca-init.sh, which
 # copies this file and orca-lib.sh into <repo>/.codex/hooks/). A launch is a simple command
-#   orca terminal create ... --command <value>   whose <value> runs `claude` or `codex`, or the
+#   orca terminal create ... --command <value>   whose <value> runs `claude` or `codex` (also
+#     inside a `sh -c` string in <value>), or the
 #     same --command <value> after any word of the command whose basename is
 #     orca-terminal-create.sh (run directly, by a shell with options, by `.`/`source`, or by
 #     another wrapper such as perl or gtimeout), or
@@ -99,12 +100,10 @@ skip_prefix='i = 1
     }
   }
   w = $i; sub(/.*\//, "", w)'
-# After skip_prefix: s, the index of the first word that may hold --command, for
-# `orca terminal create` or any word whose basename is orca-terminal-create.sh; or nested, the
-# command string of `sh -c` and the like (its newlines are \036, see commands()).
-launch_start='s = 0; nested = ""
-  if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
-  else if (w ~ /^(sh|bash|dash|zsh)$/) {
+# After skip_prefix: nested, the command string of `sh -c` and the like (its newlines are \036,
+# see commands()), or empty.
+shell_string='nested = ""
+  if (w ~ /^(sh|bash|dash|zsh)$/) {
     cmode = 0
     for (j = i + 1; j <= NF; j++) {
       o = $j
@@ -116,8 +115,43 @@ launch_start='s = 0; nested = ""
       if (o ~ /^[-+][A-Za-z]*[oO]$/) j++
     }
     if (cmode && j <= NF) nested = $j
-  }
+  }'
+# After skip_prefix: nested (see shell_string); or s, the index of the first word that may hold
+# --command, for `orca terminal create` or any word whose basename is orca-terminal-create.sh.
+launch_start="$shell_string"'; s = 0
+  if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
   if (!s && nested == "") for (j = 1; j <= NF; j++) { b = $j; sub(/.*\//, "", b); if (b == "orca-terminal-create.sh") { s = j + 1; break } }'
+
+us=$(printf '\037')
+# value_agents <command>: "<agent>\037<model>\037<effort>" for every simple command in <command>
+# (a --command value, itself a shell command) that runs claude or codex, also inside the command
+# string of `sh -c` and the like, recursively; a value the command does not set is empty.
+# Claude: --model, --effort; Codex: -m/--model and -c/--config model_reasoning_effort=<v>.
+value_agents() {
+  printf '%s\n' "$1" | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix; $shell_string"'
+    if (nested != "") { print "N", nested; next }
+    if (w != "claude" && w != "codex") next
+    model = effort = ""
+    for (j = i + 1; j <= NF; j++) {
+      t = $j; c = ""
+      if (t == "--model" || (w == "codex" && t == "-m")) { if (j < NF) model = $(++j) }
+      else if (t ~ /^--model=/) model = substr(t, 9)
+      else if (w == "claude" && t == "--effort") { if (j < NF) effort = $(++j) }
+      else if (w == "claude" && t ~ /^--effort=/) effort = substr(t, 10)
+      else if (w == "codex" && (t == "-c" || t == "--config")) { if (j < NF) c = $(++j) }
+      else if (w == "codex" && t ~ /^--config=/) c = substr(t, 10)
+      if (c ~ /^model_reasoning_effort=/) {
+        effort = substr(c, 24)
+        if (effort ~ /^".*"$/ || effort ~ /^\047.*\047$/) effort = substr(effort, 2, length(effort) - 2)
+      }
+    }
+    print "L", w, model, effort }' | while IFS= read -r _l; do
+    case "$_l" in
+    "N$us"*) value_agents "$(printf '%s' "${_l#N"$us"}" | tr '\036' '\n')" ;;
+    *) printf '%s\n' "${_l#L"$us"}" ;;
+    esac
+  done
+}
 
 # is_launch <command>: true when a simple command in <command> starts a child agent.
 is_launch() {
@@ -146,16 +180,14 @@ is_launch() {
       continue
     fi
     # The --command value is itself a shell command: any simple command in it that runs claude or codex.
-    printf '%s\n' "$value" | commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix"'
-      if (w == "claude" || w == "codex") { print "yes"; exit } }' | grep -q yes && { echo yes; break; }
+    [ -n "$(value_agents "$value")" ] && { echo yes; break; }
   done | grep -q yes
 }
 
-us=$(printf '\037')
 # launch_params <command>: "<agent>\037<model>\037<effort>" for every launch that is_launch
-# detects in <command>; a value the launch does not set is empty. Claude: --model, --effort;
-# Codex: -m/--model and -c/--config model_reasoning_effort=<v>; worker-start: --agent, --model,
-# --effort. Both `--flag value` and `--flag=value`; the last occurrence wins.
+# detects in <command>; a value the launch does not set is empty. A --command value: see
+# value_agents; worker-start: --agent, --model, --effort. Both `--flag value` and `--flag=value`;
+# the last occurrence wins.
 launch_params() {
   printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix; $launch_start"'
     if (nested != "") print "N", nested
@@ -184,23 +216,7 @@ launch_params() {
     "L$us"*) printf '%s\n' "${_l#L"$us"}" ;;
     "N$us"*) launch_params "$(printf '%s' "${_l#N"$us"}" | tr '\036' '\n')" ;;
     # The --command value is itself a shell command: every simple command in it that runs claude or codex.
-    *) printf '%s\n' "${_l#C"$us"}" | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix"'
-      if (w != "claude" && w != "codex") next
-      model = effort = ""
-      for (j = i + 1; j <= NF; j++) {
-        t = $j; c = ""
-        if (t == "--model" || (w == "codex" && t == "-m")) { if (j < NF) model = $(++j) }
-        else if (t ~ /^--model=/) model = substr(t, 9)
-        else if (w == "claude" && t == "--effort") { if (j < NF) effort = $(++j) }
-        else if (w == "claude" && t ~ /^--effort=/) effort = substr(t, 10)
-        else if (w == "codex" && (t == "-c" || t == "--config")) { if (j < NF) c = $(++j) }
-        else if (w == "codex" && t ~ /^--config=/) c = substr(t, 10)
-        if (c ~ /^model_reasoning_effort=/) {
-          effort = substr(c, 24)
-          if (effort ~ /^".*"$/ || effort ~ /^\047.*\047$/) effort = substr(effort, 2, length(effort) - 2)
-        }
-      }
-      print w, model, effort }' ;;
+    *) value_agents "${_l#C"$us"}" ;;
     esac
   done
 }

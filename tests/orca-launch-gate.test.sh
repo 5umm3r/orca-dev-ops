@@ -53,6 +53,7 @@ check "claude mentioned in echo passes" allow "$(input 'echo "orca terminal crea
 check "cat of the create script passes" allow "$(input 'cat scripts/orca-terminal-create.sh' '')"
 check "bash -n of the create script passes" allow "$(input 'bash -n scripts/orca-terminal-create.sh' '')"
 check "bash -c without an agent passes" allow "$(input "bash -c 'echo hi'" '')"
+check "terminal create with bash -c without an agent passes" allow "$(input "orca terminal create --command \"bash -c 'npm test'\"" '')"
 check "env -i orca terminal list passes" allow "$(input 'env -i orca terminal list --json' '')"
 check "role none passes" allow "$(input "$create" '' "$plain")"
 check "non-Bash tool passes" allow "$(jq -n --arg cwd "$repo" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:"x",content:"orca terminal create --command claude"}}')"
@@ -101,6 +102,10 @@ for c in \
   "env -i orca terminal create --command 'claude --model opus'" \
   "sudo -u someone orca terminal create --command 'claude --model opus'" \
   "orca terminal create --command 'env -i claude --model opus'" \
+  "orca terminal create --command \"bash -c 'claude --model opus'\"" \
+  "orca terminal create --command \"sh -x -c 'cd sub && codex -m sol'\"" \
+  "orca terminal create --command \"env -i bash -lc 'exec claude --model opus'\"" \
+  "orca terminal create --command 'bash -c \"bash -c '\\''claude --model opus'\\''\"'" \
   "bash -c \"orca terminal create --command 'claude --model opus'\"" \
   "$(printf '%s\n%s' "bash -c 'echo hi" "orca terminal create --command \"claude --model opus\"'")" \
   "perl -e 'alarm shift; exec @ARGV' 30 sh scripts/orca-terminal-create.sh --command claude" \
@@ -156,6 +161,8 @@ check "auto: missing effort denies" deny "$(input 'orca terminal create --comman
 check "auto: other agent denies" deny "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$all")"
 check "auto: worker-start other effort denies" deny "$(input 'orca orchestration worker-start --agent claude --model claude-opus-5-5 --effort=max' "$all")"
 check "auto: worker-start without model denies" deny "$(input 'orca orchestration worker-start --agent claude --effort high' "$all")"
+check "auto: bash -c inside --command with the configured values allows" allow "$(input "orca terminal create --command \"bash -c 'claude --model claude-opus-5-5 --effort high'\"" '')"
+check "auto: bash -c inside --command with other model denies" deny "$(input "orca terminal create --command \"bash -c 'claude --model claude-sonnet-5 --effort high'\"" "$all")"
 check "auto: second launch mismatching denies" deny "$(input "$ok && orca terminal create --command 'claude --model x --effort high'" "$all")"
 msg=$(reason "$(input 'orca terminal create --command "claude --model claude-sonnet-5"' '')")
 has "auto: reason names the expected values" "$msg" "agent claude, model claude-opus-5-5, and effort high"

@@ -6,9 +6,12 @@
 # Runs for Claude Code (plugin hook) and Codex (repository hook installed by orca-init.sh, which
 # copies this file and orca-lib.sh into <repo>/.codex/hooks/). A launch is a simple command
 #   orca terminal create ... --command <value>   whose <value> runs `claude` or `codex`, or the
-#     same --command <value> given to scripts/orca-terminal-create.sh (run directly, or as
-#     the script argument of sh, bash, dash, or zsh), or
+#     same --command <value> after any word of the command whose basename is
+#     orca-terminal-create.sh (run directly, by a shell with options, by `.`/`source`, or by
+#     another wrapper such as perl or gtimeout), or
 #   orca orchestration worker-start ... --agent ...   without --terminal.
+# Wrappers such as sudo or env are skipped together with their options, and the command string
+# of `sh`/`bash`/`dash`/`zsh -c` is checked the same way, recursively.
 # The launch is allowed when the session transcript, after the last previous successful launch,
 # holds answered questions for all three topics: header `Agent`, `Model`, `Effort` (trimmed,
 # any case), or, without a header, a title/question starting with `[Agent]`, `[Model]`,
@@ -57,7 +60,8 @@ join_lines() {
 }
 # The simple commands on stdin, one per line, words separated by \037, with quotes and
 # backslashes resolved (no expansion). Splits on ; & | ( ) ` and unquoted newlines
-# (the same as orca-role-guard.sh, reading stdin).
+# (the same as orca-role-guard.sh, reading stdin); a quoted newline is kept as \036, so a word
+# never spans two output lines.
 commands() {
   awk 'BEGIN { US = sprintf("%c", 31); q = "" }
     function word() { if (inw) { out = out (n++ ? US : "") w; w = ""; inw = 0 } }
@@ -76,27 +80,56 @@ commands() {
         if (index(";&|()`", c)) { flush(); continue }
         w = w c; inw = 1
       }
-      if (q == "") flush(); else w = w "\n"
+      if (q == "") flush(); else w = w "\036"
     }
     END { flush() }'
 }
-# Word index of the command name after assignments and wrappers such as sudo or env.
-skip_prefix='i = 1; while (i <= NF && ($i ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || $i ~ /^(sudo|command|env|nohup|time|exec|\{|!)$/)) i++; w = $i; sub(/.*\//, "", w)'
+# Word index i of the command name after assignments, `{`, `!`, and wrappers such as sudo or
+# env with their options (and the separate argument of an option that takes one; `--` ends a
+# wrapper's options); w is its basename.
+skip_prefix='i = 1
+  while (i <= NF) {
+    if ($i ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || $i ~ /^(\{|!)$/) { i++; continue }
+    if ($i !~ /^(sudo|command|env|nohup|time|exec)$/) break
+    p = $i; i++
+    while (i <= NF && $i ~ /^-/) {
+      if ($i == "--") { i++; break }
+      if ((p == "sudo" && $i ~ /^-[ugpCDhrtTUR]$/) || (p == "env" && $i ~ /^-[uCSP]$/) || (p == "exec" && $i == "-a") || (p == "time" && $i ~ /^-[of]$/)) i++
+      i++
+    }
+  }
+  w = $i; sub(/.*\//, "", w)'
+# After skip_prefix: s, the index of the first word that may hold --command, for
+# `orca terminal create` or any word whose basename is orca-terminal-create.sh; or nested, the
+# command string of `sh -c` and the like (its newlines are \036, see commands()).
+launch_start='s = 0; nested = ""
+  if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
+  else if (w ~ /^(sh|bash|dash|zsh)$/) {
+    cmode = 0
+    for (j = i + 1; j <= NF; j++) {
+      o = $j
+      if (o == "--" || o == "-") { j++; break }
+      if (o !~ /^[-+]./) break
+      if (o == "--rcfile" || o == "--init-file") { j++; continue }
+      if (o ~ /^--/) continue
+      if (o ~ /^-[A-Za-z]*c/) cmode = 1
+      if (o ~ /^[-+][A-Za-z]*[oO]$/) j++
+    }
+    if (cmode && j <= NF) nested = $j
+  }
+  if (!s && nested == "") for (j = 1; j <= NF; j++) { b = $j; sub(/.*\//, "", b); if (b == "orca-terminal-create.sh") { s = j + 1; break } }'
 
 # is_launch <command>: true when a simple command in <command> starts a child agent.
 is_launch() {
-  printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix"'
-    s = 0
-    if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
-    else if (w == "orca-terminal-create.sh") s = i + 1
-    else if (w ~ /^(sh|bash|dash|zsh)$/) { b = $(i + 1); sub(/.*\//, "", b); if (b == "orca-terminal-create.sh") s = i + 2 }
-    if (s) {
+  printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix; $launch_start"'
+    if (nested != "") print "nested\t" nested
+    else if (s) {
       for (j = s; j <= NF; j++) {
         v = ""
         if ($j == "--command" && j < NF) { v = $(j + 1); j++ }
         else if ($j ~ /^--command=/) v = substr($j, 11)
         else continue
-        gsub(/\n/, " ", v); print "command\t" v
+        gsub(/\036/, " ", v); print "command\t" v
       }
     } else if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") {
       agent = 0; term = 0
@@ -108,6 +141,10 @@ is_launch() {
     }
   }' | while IFS="$(printf '\t')" read -r kind value; do
     [ "$kind" = launch ] && { echo yes; break; }
+    if [ "$kind" = nested ]; then
+      is_launch "$(printf '%s' "$value" | tr '\036' '\n')" && { echo yes; break; }
+      continue
+    fi
     # The --command value is itself a shell command: any simple command in it that runs claude or codex.
     printf '%s\n' "$value" | commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix"'
       if (w == "claude" || w == "codex") { print "yes"; exit } }' | grep -q yes && { echo yes; break; }
@@ -120,18 +157,15 @@ us=$(printf '\037')
 # Codex: -m/--model and -c/--config model_reasoning_effort=<v>; worker-start: --agent, --model,
 # --effort. Both `--flag value` and `--flag=value`; the last occurrence wins.
 launch_params() {
-  printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix"'
-    s = 0
-    if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
-    else if (w == "orca-terminal-create.sh") s = i + 1
-    else if (w ~ /^(sh|bash|dash|zsh)$/) { b = $(i + 1); sub(/.*\//, "", b); if (b == "orca-terminal-create.sh") s = i + 2 }
-    if (s) {
+  printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix; $launch_start"'
+    if (nested != "") print "N", nested
+    else if (s) {
       for (j = s; j <= NF; j++) {
         v = ""
         if ($j == "--command" && j < NF) { v = $(j + 1); j++ }
         else if ($j ~ /^--command=/) v = substr($j, 11)
         else continue
-        gsub(/\n/, " ", v); print "C", v
+        gsub(/\036/, " ", v); print "C", v
       }
     } else if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") {
       agent = model = effort = ""; has = 0; term = 0
@@ -148,6 +182,7 @@ launch_params() {
   }' | while IFS= read -r _l; do
     case "$_l" in
     "L$us"*) printf '%s\n' "${_l#L"$us"}" ;;
+    "N$us"*) launch_params "$(printf '%s' "${_l#N"$us"}" | tr '\036' '\n')" ;;
     # The --command value is itself a shell command: every simple command in it that runs claude or codex.
     *) printf '%s\n' "${_l#C"$us"}" | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix"'
       if (w != "claude" && w != "codex") next

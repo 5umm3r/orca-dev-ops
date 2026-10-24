@@ -50,6 +50,10 @@ check "worker-start --terminal passes" allow "$(input 'orca orchestration worker
 check "worker-start --terminal= passes" allow "$(input 'orca orchestration worker-start --agent=codex --terminal=term_1' '')"
 check "orca-worker-start.sh passes" allow "$(input 'sh "$ROOT/scripts/orca-worker-start.sh" --run r --task t --terminal term_1 --worktree name:x' '')"
 check "claude mentioned in echo passes" allow "$(input 'echo "orca terminal create --command claude"' '')"
+check "cat of the create script passes" allow "$(input 'cat scripts/orca-terminal-create.sh' '')"
+check "bash -n of the create script passes" allow "$(input 'bash -n scripts/orca-terminal-create.sh' '')"
+check "bash -c without an agent passes" allow "$(input "bash -c 'echo hi'" '')"
+check "env -i orca terminal list passes" allow "$(input 'env -i orca terminal list --json' '')"
 check "role none passes" allow "$(input "$create" '' "$plain")"
 check "non-Bash tool passes" allow "$(jq -n --arg cwd "$repo" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:"x",content:"orca terminal create --command claude"}}')"
 
@@ -88,7 +92,19 @@ for c in \
   'cd "$R" && orca terminal create --worktree name:x --command codex | jq .' \
   "$(printf 'orca terminal \\\n  create --worktree name:x \\\n  --command "claude"')" \
   'orca orchestration worker-start --run r --task t --agent claude' \
-  'orca orchestration worker-start --agent=codex --worktree name:x'; do
+  'orca orchestration worker-start --agent=codex --worktree name:x' \
+  "sh -x scripts/orca-terminal-create.sh --command 'claude --model opus'" \
+  "bash -- scripts/orca-terminal-create.sh --command 'codex -m sol'" \
+  "bash -o errexit scripts/orca-terminal-create.sh --command 'claude --model opus'" \
+  ". scripts/orca-terminal-create.sh --command 'claude --model opus'" \
+  "source scripts/orca-terminal-create.sh --command 'claude --model opus'" \
+  "env -i orca terminal create --command 'claude --model opus'" \
+  "sudo -u someone orca terminal create --command 'claude --model opus'" \
+  "orca terminal create --command 'env -i claude --model opus'" \
+  "bash -c \"orca terminal create --command 'claude --model opus'\"" \
+  "$(printf '%s\n%s' "bash -c 'echo hi" "orca terminal create --command \"claude --model opus\"'")" \
+  "perl -e 'alarm shift; exec @ARGV' 30 sh scripts/orca-terminal-create.sh --command claude" \
+  'sudo -u someone -- env -i FOO=1 orca orchestration worker-start --agent claude'; do
   check "deny without answers: $c" deny "$(input "$c" "$none")"
   check "allow with answers: $c" allow "$(input "$c" "$all")"
 done
@@ -168,6 +184,9 @@ check "auto script: command without effort denies" deny "$(input "sh $tcs --comm
 check "auto script: without an agent command passes" allow "$(input "sh $tcs --command 'npm test'" "$none")"
 check "auto script: another script passes" allow "$(input "sh \"\$ROOT/scripts/other.sh\" $badc" "$none")"
 has "auto script: reason names the launch's values" "$(reason "$(input "sh $tcs $badc" '')")" "agent claude, model claude-sonnet-5, effort high"
+check "auto script: bash -x with the configured values allows" allow "$(input 'bash -x scripts/orca-terminal-create.sh --command "claude --model claude-opus-5-5 --effort high"' "$none")"
+check "auto: bash -c launch with other model denies" deny "$(input "bash -c \"orca terminal create --command 'claude --model claude-sonnet-5 --effort high'\"" "$none")"
+check "auto: bash -c launch with the configured values allows" allow "$(input "bash -c \"orca terminal create --command 'claude --model claude-opus-5-5 --effort high'\"" "$none")"
 
 printf '%s\n' '{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"}}' > "$cfg"
 codex_cmd='codex -a never -s workspace-write --add-dir /x -c sandbox_workspace_write.network_access=true'

@@ -152,7 +152,7 @@ session, before the first child, run the plugin's `scripts/orca-mailbox.sh
 ensure` (resolved the same way as `orca-base-ref.sh` in "Invariants"): it
 finds the plain shell pane with pane title `orca-mailbox` in the main
 checkout or splits one off the coordinator's own pane (`--direction
-vertical|horizontal`, default horizontal, stacked; run it inside the coordinator's Orca
+vertical|horizontal`, default vertical; run it inside the coordinator's Orca
 terminal), binds a Run to it when none is bound, and prints
 `{"terminal": "<M>", "run": "<run_id>"}`. Exit 4: several `orca-mailbox`
 panes, handles on stderr (close all but one, then rerun); 1: another

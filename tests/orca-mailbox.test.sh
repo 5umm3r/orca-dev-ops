@@ -33,7 +33,7 @@ unset ORCA_STUB_RUN
 result "ensure without a mailbox" 0 "$(mailbox none ensure)"
 result "ensure without a mailbox: JSON" '{"terminal":"term_split","run":"run_created"}' "$(jq -c . "$tmp/out")"
 has "ensure lists the main checkout's terminals" "$(call 'terminal list')" "--worktree path:$repo --json"
-result "ensure splits the caller's own pane" "terminal split --terminal term_own --direction horizontal --json" "$(call 'terminal split')"
+result "ensure splits the caller's own pane" "terminal split --terminal term_own --direction vertical --json" "$(call 'terminal split')"
 result "ensure: the split stays attested" "ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID" "$(env_of 'terminal split')"
 result "ensure names the new pane" "terminal set-pane-title --terminal term_split --title orca-mailbox --json" "$(call 'terminal set-pane-title')"
 result "ensure: no terminal create" 0 "$(count 'terminal create')"

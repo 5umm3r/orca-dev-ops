@@ -17,7 +17,7 @@
 #           $ORCA_TERMINAL_HANDLE --direction <direction>`, a plain shell; it must run inside the
 #           coordinator's Orca terminal) and names the new pane with `orca terminal set-pane-title
 #           --title orca-mailbox`; when naming fails the new pane is closed again. --direction
-#           defaults to vertical. Then runs `run-current --from M`, and
+#           defaults to horizontal (stacked above and below). Then runs `run-current --from M`, and
 #           `run-create --from M --objective <text>` (default: orca-dev-ops coordinator) when no
 #           Run is bound. Prints {"terminal": "<M>", "run": "<run id>"}, exit 0.
 #   exec    Finds M (never creates it: exit 3 when there is none) and runs
@@ -33,7 +33,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 usage() { printf 'orca-mailbox: %s\n' "$*" >&2; exit 64; }
 die() { code=$1; shift; printf 'orca-mailbox: %s\n' "$*" >&2; exit "$code"; }
 
-title=orca-mailbox objective='orca-dev-ops coordinator' direction=vertical
+title=orca-mailbox objective='orca-dev-ops coordinator' direction=horizontal
 [ $# -ge 1 ] || usage "a subcommand is required: ensure or exec"
 sub=$1
 shift

@@ -33,9 +33,6 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 usage() { printf 'orca-mailbox: %s\n' "$*" >&2; exit 64; }
 die() { code=$1; shift; printf 'orca-mailbox: %s\n' "$*" >&2; exit "$code"; }
 
-# The subcommand and the exec verb come first, with no option before them: the launch gate
-# (hooks/orca-launch-gate.sh) finds a launch only as the adjacent words `exec worker-start`.
-# Keep this order, or extend the gate first (tests/orca-mailbox.test.sh pins it).
 title=orca-mailbox objective='orca-dev-ops coordinator' direction=horizontal
 [ $# -ge 1 ] || usage "a subcommand is required: ensure or exec"
 sub=$1

@@ -217,15 +217,13 @@ user is typing, so the text can land in a draft and submit it; a waiter that
 registers within the 500 ms (the gap between two waits of this script) skips
 the Enter but leaves the text in the prompt (read from Orca 1.4.243's bundled
 code; there is no setting to turn it off). The coordinator therefore owns its
-Run from a mailbox pane that runs no agent and so gets no injection
-(`scripts/orca-mailbox.sh ensure` splits it off the coordinator's pane; pane
-title `orca-mailbox`, it closes with the coordinator's tab), and passes its
-handle as `--terminal`:
+Run from a mailbox terminal that runs no agent and so gets no injection
+(`scripts/orca-mailbox.sh ensure`), and passes its handle as `--terminal`:
 every check then runs as that terminal, without the Orca attestation
 variables (`ORCA_TERMINAL_HANDLE`, `ORCA_PANE_KEY`, `ORCA_AGENT_PANE`,
 `ORCA_AGENT_LAUNCH`, `ORCA_AGENT_LAUNCH_TOKEN`, `ORCA_TAB_ID`). Removing them
 lets any terminal act as another, an Orca property; children are kept off it
-by the role guard and the AGENTS.md rules. Closing the mailbox pane
+by the role guard and the AGENTS.md rules. Closing the mailbox terminal
 fences its Run. `--wake-on-status` and
 `monitor.wakeOnStatus` only change which batches wake the caller. With
 `--out`, it also writes the printed object to `<path>` atomically (an earlier

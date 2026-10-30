@@ -29,6 +29,17 @@ orca_cli() {
   fi
 }
 
+# orca_unattested <args>: the orca CLI, unbounded, without the variables that attest which
+# terminal is calling (ORCA_TERMINAL_HANDLE, ORCA_PANE_KEY, ORCA_AGENT_PANE, ORCA_AGENT_LAUNCH,
+# ORCA_AGENT_LAUNCH_TOKEN, ORCA_TAB_ID). An attested call that names another terminal with
+# --from or --terminal fails with consumer_fenced; without them Orca lets the call act as that
+# terminal. The coordinator uses this for its mailbox terminal (scripts/orca-mailbox.sh); the
+# role guard keeps children off it.
+orca_unattested() (
+  unset ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID
+  exec orca "$@"
+)
+
 # orca_phys <absolute path>: the path with symlinks resolved in its nearest existing directory
 # (the path itself may not exist yet).
 orca_phys() {

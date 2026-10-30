@@ -1,6 +1,7 @@
 #!/bin/sh
 # Usage: orca-worker-start.sh --run <run_id> --task <task_id> --terminal <handle> --worktree <selector>
-#                             [--expect <ERE>] [--retry-delay <sec>] [--header-timeout <sec>]
+#                             [--from <handle>] [--expect <ERE>] [--retry-delay <sec>]
+#                             [--header-timeout <sec>]
 # Starts a dispatched worker on a child terminal that was just created, working around a
 # start-up race: `orca terminal wait --for tui-idle` can return before Orca recognizes the agent,
 # and `worker-start` then fails with "is not running a recognized agent".
@@ -11,12 +12,18 @@
 #   3. On "not a recognized agent", waits --retry-delay (default 5) seconds and runs the identical
 #      worker-start once more with the same task ID. Never calls task-create. Success: exit 0;
 #      failure: prints the second receipt, a reason on stderr, exit 4.
+# --from <handle> runs worker-start as that coordinator terminal (`--from <handle>`, without the
+# Orca attestation variables; see orca_unattested in hooks/orca-lib.sh): pass the handle of the
+# mailbox terminal that owns the Run (scripts/orca-mailbox.sh). Without it, worker-start is
+# attested as the calling terminal.
 # Any other worker-start failure prints the receipt and exits 1 without a retry. Usage errors
 # exit 64. Requires orca and jq.
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$ROOT/hooks/orca-lib.sh"
 usage() { printf 'orca-worker-start: %s\n' "$*" >&2; exit 64; }
 die() { code=$1; shift; printf 'orca-worker-start: %s\n' "$*" >&2; exit "$code"; }
 
-run= task= term= wt= delay=5 limit=30
+run= task= term= wt= from= delay=5 limit=30
 expect='(Opus|Sonnet|Haiku|Fable) [0-9]|with [a-z]+ effort|OpenAI Codex|model:'
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || usage "missing value for $1"
@@ -25,6 +32,7 @@ while [ $# -gt 0 ]; do
   --task) task=$2 ;;
   --terminal) term=$2 ;;
   --worktree) wt=$2 ;;
+  --from) from=$2; [ -n "$2" ] || usage "--from takes a terminal handle" ;;
   --expect) expect=$2 ;;
   --retry-delay) delay=$2 ;;
   --header-timeout) limit=$2 ;;
@@ -50,10 +58,13 @@ done
 # 2. and 3. Start the worker, retrying once on the start-up race.
 err=$(mktemp) || die 1 "cannot create a temporary file"
 trap 'rm -f "$err"' EXIT
-# start: runs worker-start with its stdout in $out and its stderr in $err. Fails on a non-zero
+# start: runs worker-start (as --from when given) with its stdout in $out and its stderr in $err. Fails on a non-zero
 # exit or on a JSON receipt with ok false.
 start() {
-  out=$(orca orchestration worker-start --run "$run" --task "$task" --terminal "$term" --worktree "$wt" --json 2>"$err") \
+  if [ -n "$from" ]; then set -- orca_unattested orchestration worker-start --from "$from"
+  else set -- orca orchestration worker-start
+  fi
+  out=$("$@" --run "$run" --task "$task" --terminal "$term" --worktree "$wt" --json 2>"$err") \
     && ! printf '%s' "$out" | jq -e '.ok == false' >/dev/null 2>&1
 }
 receipt() { [ -z "$out" ] || printf '%s\n' "$out"; cat "$err" >&2; }

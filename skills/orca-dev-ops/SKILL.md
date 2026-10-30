@@ -45,7 +45,10 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sessions it blocks editing `.orca-dev-ops.json`, commit/push/merge/rebase,
   worktree create/rm/set, `orca terminal` create/close/send/split, most
   `orca orchestration` verbs (only `ask`/`send`/`check`/`reply` and the
-  read-only ones are allowed), edits outside the own worktree, and a set of
+  read-only ones are allowed), acting as another terminal
+  (`scripts/orca-mailbox.sh ensure`/`exec`, `orca-wait.sh --terminal`,
+  `orca-worker-start.sh --from`, and `orca orchestration` with the Orca
+  attestation variables removed or reassigned), edits outside the own worktree, and a set of
   destructive/external commands (`git reset --hard`, `rm -r`/`-f` outside the
   worktree, publish/deploy commands, etc.) — see `hooks/orca-role-guard.sh`
   and `hooks/orca-lib.sh` for the exact lists; path handling covers spaces,
@@ -53,7 +56,7 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sandbox, and Claude sessions only — Codex is limited by its own sandbox
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
-- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, with the script as any word of the command (run directly, through a shell with options, `.`/`source`, or another wrapper), are gated the same way, and so are launches inside `sh -c` strings). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch modes `semi-auto` and `auto` it reads no transcript for the default tier and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); with `launch.escalate` set, the `launch.agent` with the escalate model and effort is allowed as well: in `auto` without reading the transcript, in `semi-auto` only after an answered `Model` question since the last successful launch. Anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
+- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, with the script as any word of the command (run directly, through a shell with options, `.`/`source`, or another wrapper), are gated the same way, and so are `scripts/orca-mailbox.sh exec worker-start --agent` without `--terminal`, launches behind `env -u VAR`/`env VAR=...`, and launches inside `sh -c` strings). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch modes `semi-auto` and `auto` it reads no transcript for the default tier and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); with `launch.escalate` set, the `launch.agent` with the escalate model and effort is allowed as well: in `auto` without reading the transcript, in `semi-auto` only after an answered `Model` question since the last successful launch. Anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
 Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
 ## Repository setup
@@ -143,7 +146,22 @@ integration, `--force`); the loader rejects unknown keys.
 
 ## Starting a child
 
+The coordinator's Run belongs to a mailbox terminal, not to the
+coordinator's own agent terminal (see "Communication and state"). Once per
+session, before the first child, run the plugin's `scripts/orca-mailbox.sh
+ensure` (resolved the same way as `orca-base-ref.sh` in "Invariants"): it
+finds the plain shell titled `orca-mailbox` in the main checkout or creates
+one, binds a Run to it when none is bound, and prints
+`{"terminal": "<M>", "run": "<run_id>"}`. Exit 4: several `orca-mailbox`
+terminals, handles on stderr (close all but one, then rerun); 1: another
+failure. From then on every coordinator verb acts as M:
+`orca-mailbox.sh exec <verb> ...` adds `--from M` (`--terminal M` for
+`check`), `orca-worker-start.sh --from M`, and `orca-wait.sh --terminal M`.
+`exec` never creates the terminal; exit 3 means it is gone, so run `ensure`
+again. Do not rely on `run-current` of the coordinator's own terminal.
+
 Prefer `orca orchestration worker-start --agent ... --model ... --effort ...`
+(as `orca-mailbox.sh exec worker-start --agent ...`)
 when it can express the agent, model, effort, base ref, and the required
 permission settings below in one call. On Orca 1.4.206 it cannot pass the
 Claude `--dangerously-skip-permissions` flag or the Codex `-a never
@@ -152,8 +170,8 @@ flags, so the compatible path — not a deprecated fallback, the supported route
 for these agents — is: `orca worktree create` -> the plugin's
 `scripts/orca-terminal-create.sh` with the full agent command (resolved the
 same way as `orca-base-ref.sh` in "Invariants") -> wait for `tui-idle` ->
-`orca orchestration task-create` + `worker-start --terminal <handle>
---worktree <sel>`.
+`orca-mailbox.sh exec task-create` + `orca-worker-start.sh --from <M>
+--terminal <handle> --worktree <sel>`.
 
 `orca terminal create` into a worktree created moments earlier can fail with
 `Timed out waiting for terminal handle after creation` although the agent
@@ -183,14 +201,15 @@ check and the single retry in one step: exit 0 started, 3 no header (not
 called), 4 failed twice, 1 other failure.
 
 ```sh
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-mailbox.sh" ensure   # once per session: {"terminal": "<M>", "run": "<run_id>"}
 orca worktree create --name cc-<topic> --base-branch <base ref> \
   --comment "agent:claude model:<model> effort:<grade> scope:<files>" --json
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-terminal-create.sh" --worktree name:cc-<topic> --title agent \
   --command "claude --dangerously-skip-permissions --settings '${CLAUDE_PLUGIN_ROOT}/templates/child-settings.json' --model <model> --effort <level>"
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
-orca orchestration task-create --run <run_id> --task-title "<topic>" \
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-mailbox.sh" exec task-create --run <run_id> --task-title "<topic>" \
   --spec "Read <absolute prompt-file path> and execute it." --json
-sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --run <run_id> --task <task_id> \
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --from <M> --run <run_id> --task <task_id> \
   --terminal <handle> --worktree name:cc-<topic>
 ```
 
@@ -344,8 +363,13 @@ accounting (reuse, retain, or release). This section adds only this
 workflow's choices and what live tests showed.
 
 - Keep Task, Dispatch, worktree, and terminal IDs separate in the plan/notes.
-  Use one Run per coordinator session: reuse `run-current` rather than
-  calling `run-create` again (see "Known constraints").
+  Use one Run per coordinator session, owned by the mailbox terminal M: run
+  `orca-mailbox.sh ensure` once per session (it reuses the Run bound to M
+  and creates one only when none is bound) instead of `run-current` or
+  `run-create` on the coordinator's own terminal, and send every coordinator
+  verb as M: `orca-mailbox.sh exec task-create|send|reply ...`,
+  `orca-worker-start.sh --from <M>`, `orca-wait.sh --terminal <M>` (see
+  "Starting a child" and "Known constraints").
 - Orchestration messages first; `orca terminal read/send` for supplementary
   input and recovery. Sending text to a terminal is not acceptance: confirm by
   the child's screen or its next message.
@@ -356,11 +380,12 @@ workflow's choices and what live tests showed.
   verification commands and output come in the `status` just before it, and
   changed paths in `--files-modified`. Review against those, not the summary.
 - Review fixes and follow-ups reuse the same terminal/worktree through a new
-  Task + Dispatch (`task-create` + `worker-start --terminal`). Ignore any
+  Task + Dispatch (`orca-mailbox.sh exec task-create` +
+  `orca-worker-start.sh --from <M> --terminal <handle>`). Ignore any
   message whose payload dispatchId is not the active Dispatch.
 - Monitoring must match what this coordinator session can actually do:
   - Claude Code: arm a background
-    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-wait.sh" --run <run_id> --out <scratchpad>/orca-wait-<run_id>.json`
+    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-wait.sh" --run <run_id> --terminal <M> --out <scratchpad>/orca-wait-<run_id>.json`
     (the plugin's `scripts/orca-wait.sh`, resolved the same way as
     `orca-base-ref.sh` in "Invariants") whose completion re-invokes the
     session; when re-invoked, read the `--out` file, not the background
@@ -368,38 +393,43 @@ workflow's choices and what live tests showed.
     ```sh
     jq -r '.delivery.result.deliveryId, (.delivery.result.messages[]? | "[\(.type)] \(.subject // "")\n\(.body)\n\(.payload)"), (.deferred[]? | "[deferred status] \(.body)"), (.error // empty | "[error] \(.)")' <scratchpad>/orca-wait-<run_id>.json
     ```
-    It wraps `check --wait` with no `--types`, so the wait covers every
-    message type and Orca's terminal injection does not fire while it is
-    armed (see "Known constraints"); it acknowledges
+    It wraps `check --terminal <M> --wait` with no `--types`, so the wait
+    covers every message type; it acknowledges
     batches of only heartbeats and statuses and keeps waiting, and exits 0
     with `{"delivery": ..., "deferred": [...]}` on a Delivery that holds a
     `worker_done`, `escalation`, `question`, or another type, 2 on timeout
     (`delivery` null), 1 on an Orca error. `deferred` holds the `status`
     messages it already acknowledged; read them, they are not delivered
     again. The returned Delivery is not acknowledged: handle every message in
-    it, `--ack` its deliveryId (e.g. `orca orchestration check --run <run_id>
-    --ack <deliveryId> --json`), then re-arm. The timeout and whether status
+    it, `--ack` its deliveryId (e.g. `orca-mailbox.sh exec check --run
+    <run_id> --ack <deliveryId> --json`), then re-arm. The timeout and whether status
     wakes come from `monitor` in the settings (default 590000 ms, statuses
     deferred). The first wait after a start uses `--wake-on-status`, so the
     first `status` is read without waiting for `worker_done`.
   - An agent without background re-invocation (e.g. Codex): the same
-    `check --wait` (no `--types`) in the foreground with a timeout below its
-    tool-call limit, repeated while the turn lasts; when the turn must end,
-    say that supervision pauses and how to resume
-    (`orca orchestration check --run <id>` on the next turn).
-  - Orca writes "You have N orchestration message(s)..." and then Enter
-    into an idle coordinator terminal for any unread message type that no
-    live `check --wait` covers (see "Known constraints"). `orca-wait.sh`
-    covers all types, so the injection can still happen only while no wait
-    is armed (between a wake-up and the re-arm, or when not monitoring);
-    treat it as an aid, not the primary monitoring mechanism.
+    `orca-mailbox.sh exec check --run <id> --wait` (no `--types`) in the
+    foreground with a timeout below its tool-call limit, repeated while the
+    turn lasts; when the turn must end, say that supervision pauses and how
+    to resume (`orca-mailbox.sh exec check --run <id>` on the next turn).
+  - Orca types "You have N (new) orchestration message(s)..." into the
+    terminal that owns the Run inbox when its agent status is idle and no
+    untyped `check --wait` is live, and sends Enter 500 ms later. It does not
+    check whether the user is typing, so the text can land in the user's
+    draft and submit it; a waiter that registers within the 500 ms (the gap
+    between two waits of `orca-wait.sh`) skips the Enter but leaves the text
+    in the prompt (see "Known constraints"). The mailbox terminal avoids
+    this: it runs no agent, so it has no agent status and nothing is typed
+    into it, and the coordinator's own terminal no longer owns the inbox.
+    Closing the mailbox terminal fences its Run; close it only when no
+    Dispatch of the Run is live (the next `ensure` creates a new terminal
+    and Run).
   - Do not assume backgrounding a shell command re-invokes any agent.
   - On timeout: check `worker-show` (state, `observation.agentWait`,
     `lastHeartbeatAt`) and the child's screen; `TASKS.md` is a checklist, not
     a liveness or completion signal. `orca terminal wait --for tui-idle` is
     not a substitute for this with Codex (see "Known constraints").
 
-Send spec additions and mid-run corrections with `orca orchestration send
+Send spec additions and mid-run corrections with `orca-mailbox.sh exec send
 --to dispatch:<dispatch_id>`; the child picks them up with `check` at its next
 checkpoint (the enqueue does not interrupt it). Fall back to `orca terminal
 send` only when the child's messages and screen show it has not picked the
@@ -490,14 +520,34 @@ release -> worktree removal.
 - With `--terminal` binding, the Claude screen's effort indicator showed
   `[medium]` for both `--effort low` and `--effort high`; treat effort as
   unconfirmed from the screen alone unless another source shows it.
-- Read from Orca 1.4.216's bundled code: when the coordinator terminal is
-  idle and holds unread messages, Orca writes "You have N orchestration
-  message(s). Run `orca orchestration check --run <id>`." into it and, 500 ms
-  later, Enter, which submits the coordinator's prompt. It skips only the
-  message types that a live `check --wait` covers, and a waiter without
-  `--types` covers every type. `orca-wait.sh` passes no `--types`, so the
-  injection can still happen only while no wait is armed (between a wake-up
-  and the re-arm, or when not monitoring).
+- Read from Orca 1.4.243/1.4.244's bundled code: Orca writes "You have N
+  (new) orchestration message(s)..." into the terminal that owns a Run inbox
+  (`run.coordinator_handle`) whenever that terminal's agent status is idle
+  and no untyped `check --wait` is live, then Enter 500 ms later. It does not
+  look at whether the user is typing, so it can splice the text into the
+  user's draft and submit it. When a waiter registers inside those 500 ms
+  (the gaps between consecutive `check --wait` calls of `orca-wait.sh`), it
+  skips the Enter but leaves the text in the prompt. There is no Orca
+  setting to turn this off.
+- Hence the mailbox terminal (verified live on Orca 1.4.243): a plain shell
+  created with `orca terminal create --worktree path:<main checkout> --title
+  orca-mailbox` (no `--command`) owns the Run. A message sent to `run:<id>`
+  put no text into it (it has no agent status) nor into the coordinator's
+  agent terminal; `check --terminal <M> --run <id>` returned the Delivery and
+  `--ack` worked the same way. Closing the mailbox terminal fences its Run.
+  `check` takes `--terminal`, never `--from`; every other coordinator verb
+  (`run-create`, `run-current`, `task-create`, `worker-start`, `send`,
+  `reply`, `ask`) takes `--from`.
+- `run-create --from <M>` from another terminal fails with `consumer_fenced`
+  ("This terminal is attested as <own> and cannot act as <M>") while the
+  Orca terminal environment is present, and succeeds with
+  `ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH
+  ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID` removed. Removing those attestation
+  variables lets any terminal act as any other; that is an Orca property this
+  plugin cannot close. The coordinator uses it only for its mailbox
+  (`orca-mailbox.sh`, `orca-wait.sh --terminal`, `orca-worker-start.sh
+  --from`); children are kept off it by the role guard (Claude) and the
+  AGENTS.md rules (Codex).
 - Children sometimes send a heartbeat or repeat an earlier question instead
   of the first `status` message; answer duplicates consistently, and ask
   again for the status if it never arrives.
@@ -509,9 +559,9 @@ release -> worktree removal.
   failed before start.
 - A coordinator terminal is bound to one Run at a time: `run-create` rebinds
   it, and `task-create`/`worker-start` on the previous Run then fail with
-  `consumer_fenced`. Use one Run per coordinator session (reuse
-  `run-current`); start a new Run only when no Dispatch of the current Run
-  is still live.
+  `consumer_fenced`. Use one Run per coordinator session (`orca-mailbox.sh
+  ensure` reuses the Run bound to the mailbox terminal); start a new Run
+  only when no Dispatch of the current Run is still live.
 - Observed on Orca 1.4.209: `check --wait --json` emits keepalive JSON lines
   (`{"_keepalive":true,"_heartbeat":true,...}`) on stderr every 15 s and the
   pretty-printed Delivery JSON on stdout, so a background shell's combined

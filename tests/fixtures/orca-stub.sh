@@ -10,10 +10,6 @@
 #   ORCA_STUB_BASE_REF  worktreeBaseRef returned by `repo show` (default: null)
 #   ORCA_STUB_REMOTE    gitRemoteIdentity.remoteName returned by `repo show` (default: origin; "null" for null)
 #   ORCA_STUB_LOG       when set, every call's arguments are appended to this file, one call per line.
-#   ORCA_STUB_ENV_LOG   when set, every call appends one line to this file: the names of the Orca
-#                       attestation variables (ORCA_TERMINAL_HANDLE, ORCA_PANE_KEY, ORCA_AGENT_PANE,
-#                       ORCA_AGENT_LAUNCH, ORCA_AGENT_LAUNCH_TOKEN, ORCA_TAB_ID) set in its
-#                       environment, space-separated, or "-" when none is set.
 #   ORCA_STUB_HEADER_AFTER  `terminal read` shows an agent header from this call on (1 = the first
 #                       call; default 1; "never" for never). Counts need ORCA_STUB_LOG.
 #   ORCA_STUB_START     space-separated outcomes of successive `orchestration worker-start` calls
@@ -23,12 +19,9 @@
 #                       none; the last set repeats). A set is a comma-separated list of none (an
 #                       empty list), shell (a plain shell: no agentIdentity, no header), agent
 #                       (agentIdentity claude, header on `terminal read`), or header (no
-#                       agentIdentity, header on `terminal read`), mailbox (a plain shell titled
-#                       orca-mailbox), mailbox-agent (the same with agentIdentity claude),
-#                       mailbox-closed (the same as mailbox with connected false), or
-#                       mailbox-orphan (the same as mailbox with orphaned true). The Nth item of a
-#                       set has the handle term_N. `terminal read` answers by the latest list call.
-#                       Needs ORCA_STUB_LOG.
+#                       agentIdentity, header on `terminal read`). The Nth item of a set has the
+#                       handle term_N. `terminal read` answers by the latest list call. Needs
+#                       ORCA_STUB_LOG.
 #   ORCA_STUB_TERMINALS_RECREATED  the same kind of list, used from the second `terminal create`
 #                       call on, indexed by the `terminal list` calls since that create.
 #   ORCA_STUB_CREATE    space-separated outcomes of successive `terminal create` calls (default:
@@ -44,22 +37,8 @@
 #                       types for one Delivery with deliveryId dlv_<call number> (`untyped` is a
 #                       message whose type is null). Each result follows a keepalive line on
 #                       stdout and stderr.
-#   ORCA_STUB_RUN       the Run id `orchestration run-current` reports as bound (default: none, a
-#                       null run).
-#   ORCA_STUB_RUN_CREATE  `orchestration run-create`: ok (default; Run run_created with the given
-#                       --objective) or fenced (the consumer_fenced error, exit 1).
-#   ORCA_STUB_VERB_FAIL  an orchestration verb without its own fixture (send, reply, task-create,
-#                       ...) that fails: an ok false receipt on stdout, a line on stderr, exit 3.
-#                       Every other such verb answers {"ok": true, "result": {"verb": <verb>}}.
 fx=$ORCA_STUB_FIXTURES
 [ -n "${ORCA_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$ORCA_STUB_LOG"
-if [ -n "${ORCA_STUB_ENV_LOG:-}" ]; then
-  set_vars=
-  for v in ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID; do
-    eval "[ -n \"\${$v+x}\" ]" && set_vars="$set_vars $v"
-  done
-  printf '%s\n' "${set_vars# }" | sed 's/^$/-/' >> "$ORCA_STUB_ENV_LOG"
-fi
 # calls <prefix>: how many logged calls, including this one, start with <prefix>.
 calls() { [ -n "${ORCA_STUB_LOG:-}" ] && grep -c "^$1" "$ORCA_STUB_LOG" || echo 1; }
 # nth <number> <word>...: the <number>th word, or the last one when there are fewer.
@@ -160,10 +139,8 @@ case "$1 $2" in
 "terminal list")
   state=$(list_state)
   jq -n --arg s "$state" '[$s | split(",") | to_entries[] | select(.value != "none") | {
-      handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w",
-      title: (if .value | startswith("mailbox") then "orca-mailbox" else "agent" end),
-      preview: "", connected: (.value != "mailbox-closed"), orphaned: (.value == "mailbox-orphan"),
-      agentIdentity: (if .value == "agent" or .value == "mailbox-agent" then "claude" else null end)}]
+      handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w", title: "agent",
+      preview: "", connected: true, agentIdentity: (if .value == "agent" then "claude" else null end)}]
     | {ok: true, result: {terminals: ., totalCount: length, truncated: false}}'
   ;;
 "terminal create")
@@ -204,25 +181,6 @@ case "$1 $2" in
   race-stderr) echo "Error: $msg" >&2; exit 1 ;;
   other) echo '{"ok":false,"error":{"code":"not_found","message":"Task task_stub not found."}}'; exit 1 ;;
   esac
-  ;;
-"orchestration run-current")
-  jq -n --arg r "${ORCA_STUB_RUN:-}" '{ok: true, result: {run: (if $r == "" then null else {id: $r, objective: "stub"} end)}}'
-  ;;
-"orchestration run-create")
-  obj=
-  while [ $# -gt 0 ]; do [ "$1" = --objective ] && obj=$2; shift; done
-  case "${ORCA_STUB_RUN_CREATE:-ok}" in
-  ok) jq -n --arg o "$obj" '{ok: true, result: {run: {id: "run_created", objective: $o}}}' ;;
-  fenced) echo '{"ok":false,"error":{"code":"consumer_fenced","message":"This terminal is attested as term_own and cannot act as term_1."}}'; exit 1 ;;
-  esac
-  ;;
-"orchestration "*)
-  if [ "$2" = "${ORCA_STUB_VERB_FAIL:-}" ]; then
-    jq -n --arg v "$2" '{ok: false, error: {code: "stub_failure", message: "\($v) failed"}}'
-    echo "orca stub: $2 failed" >&2
-    exit 3
-  fi
-  jq -n --arg v "$2" '{ok: true, result: {verb: $v}}'
   ;;
 *) echo "orca stub: unsupported command: $*" >&2; exit 2 ;;
 esac

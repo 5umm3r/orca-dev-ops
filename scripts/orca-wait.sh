@@ -1,18 +1,11 @@
 #!/bin/sh
-# Usage: orca-wait.sh --run <run_id> [--terminal <handle>] [--timeout-ms <n>] [--wake-on-status]
-#                    [--out <path>]
+# Usage: orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]
 # Coordinator wait that wakes only on actionable mail. Wraps
 #   orca orchestration check --run <run_id> --wait --timeout-ms <remaining> --json
-# with no --types: Orca types "You have N (new) orchestration message(s)..." into the terminal
-# that owns the Run inbox when its agent is idle and no untyped `check --wait` is live, and sends
-# Enter 500 ms later (read from Orca 1.4.243's bundled code). It skips that Enter when a waiter
-# registers within the 500 ms, as in the gap between two waits of this loop, but the text stays
-# in the prompt. An untyped waiter covers every type; a typed one would leave the others
-# (heartbeat, status) to that injection. The coordinator avoids the injection altogether by
-# owning its Run from a mailbox terminal that runs no agent (scripts/orca-mailbox.sh).
-# --terminal <handle> runs every check as that terminal (`--terminal <handle>`, without the Orca
-# attestation variables; see orca_unattested in hooks/orca-lib.sh): pass the mailbox terminal's
-# handle. Without it, each check is attested as the calling terminal. Defaults come
+# with no --types: Orca types "You have N orchestration message(s)..." into an idle coordinator
+# terminal and submits it with Enter for every unread message type that no live `check --wait`
+# covers, so a typed waiter would leave the other types (heartbeat, status) to that injection.
+# An untyped waiter covers every type (read from Orca 1.4.216's bundled code). Defaults come
 # from the repository's .orca-dev-ops.json (monitor.timeoutMs, monitor.wakeOnStatus; see
 # docs/config.md), read from the main checkout of the current directory's repository.
 # A Delivery is the whole FIFO batch and is replayed until acknowledged; any message ends the
@@ -40,14 +33,13 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/hooks/orca-lib.sh"
 usage() { printf 'orca-wait: %s\n' "$*" >&2; exit 64; }
 
-run= term= timeout= wake= out= outtmp=
+run= timeout= wake= out= outtmp=
 while [ $# -gt 0 ]; do
   case "$1" in
-  --run | --terminal | --timeout-ms | --out) [ $# -ge 2 ] || usage "missing value for $1" ;;
+  --run | --timeout-ms | --out) [ $# -ge 2 ] || usage "missing value for $1" ;;
   esac
   case "$1" in
   --run) run=$2; shift ;;
-  --terminal) term=$2; [ -n "$2" ] || usage "--terminal takes a terminal handle"; shift ;;
   --timeout-ms) timeout=$2; [ -n "$2" ] || usage "--timeout-ms takes a whole number of milliseconds"; shift ;;
   --wake-on-status) wake=1 ;;
   --out) out=$2; [ -n "$2" ] || usage "--out takes a file path"; shift ;;
@@ -98,10 +90,7 @@ finish() {
 }
 # check_once <option>...: one `orca orchestration check`; the final non-keepalive object in $res.
 check_once() {
-  if [ -n "$term" ]; then set -- orca_unattested orchestration check --terminal "$term" --run "$run" "$@"
-  else set -- orca orchestration check --run "$run" "$@"
-  fi
-  res=$("$@" --json 2>/dev/null \
+  res=$(orca orchestration check --run "$run" "$@" --json 2>/dev/null \
     | jq -cs 'map(select(type == "object" and (._keepalive | not))) | last' 2>/dev/null)
   printf '%s' "$res" | jq -e '.ok == true and (.result | type) == "object"' >/dev/null 2>&1 && return 0
   [ -n "$res" ] && [ "$res" != null ] || res='"orca orchestration check failed without a JSON receipt"'

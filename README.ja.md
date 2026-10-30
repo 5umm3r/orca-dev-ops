@@ -21,7 +21,6 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `scripts/orca-terminal-create.sh` | 子のエージェントターミナルを作成し、`terminal create` のハンドル待ちタイムアウトでは再作成せずに待ち、重複したエージェントターミナルを検出する |
 | `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
-| `scripts/orca-mailbox.sh` | コーディネーター用のメールボックス。Run を持つ素のシェルターミナルを見つけるか作成し、Orca がコーディネーターのプロンプトへ通知文を打ち込まないようにする。オーケストレーションの操作はそのターミナルとして実行する |
 | `scripts/orca-wait.sh` | コーディネーター用の待機。対応が必要なメッセージで起き、heartbeat と status だけのバッチは確認応答して status を保持する |
 | `scripts/orca-usage.sh` | 子 worktree のトークン使用量を Claude と Codex のローカル transcript から集計する |
 | `docs/config.ja.md` | リポジトリ設定ファイルのリファレンス |

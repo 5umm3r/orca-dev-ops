@@ -55,12 +55,6 @@ check "bash -n of the create script passes" allow "$(input 'bash -n scripts/orca
 check "bash -c without an agent passes" allow "$(input "bash -c 'echo hi'" '')"
 check "terminal create with bash -c without an agent passes" allow "$(input "orca terminal create --command \"bash -c 'npm test'\"" '')"
 check "env -i orca terminal list passes" allow "$(input 'env -i orca terminal list --json' '')"
-check "mailbox exec worker-start --terminal passes" allow "$(input 'sh scripts/orca-mailbox.sh exec worker-start --run r --task t --agent claude --terminal term_1' '')"
-check "mailbox exec send passes" allow "$(input 'sh scripts/orca-mailbox.sh exec send --to term_1 --subject "worker-start --agent claude"' '')"
-check "mailbox ensure passes" allow "$(input 'sh scripts/orca-mailbox.sh ensure' '')"
-check "cat of the mailbox script passes" allow "$(input 'cat scripts/orca-mailbox.sh' '')"
-check "env -u worker-start --terminal passes" allow "$(input 'env -u ORCA_TAB_ID orca orchestration worker-start --from term_m --agent claude --terminal term_1' '')"
-check "orca-worker-start.sh --from passes" allow "$(input 'sh "$ROOT/scripts/orca-worker-start.sh" --from term_m --run r --task t --terminal term_1 --worktree name:x' '')"
 check "role none passes" allow "$(input "$create" '' "$plain")"
 check "non-Bash tool passes" allow "$(jq -n --arg cwd "$repo" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:"x",content:"orca terminal create --command claude"}}')"
 
@@ -115,20 +109,7 @@ for c in \
   "bash -c \"orca terminal create --command 'claude --model opus'\"" \
   "$(printf '%s\n%s' "bash -c 'echo hi" "orca terminal create --command \"claude --model opus\"'")" \
   "perl -e 'alarm shift; exec @ARGV' 30 sh scripts/orca-terminal-create.sh --command claude" \
-  'sudo -u someone -- env -i FOO=1 orca orchestration worker-start --agent claude' \
-  'env -u ORCA_TERMINAL_HANDLE -u ORCA_PANE_KEY -u ORCA_AGENT_PANE -u ORCA_AGENT_LAUNCH -u ORCA_AGENT_LAUNCH_TOKEN -u ORCA_TAB_ID orca orchestration worker-start --from term_m --agent claude' \
-  'env --unset ORCA_TERMINAL_HANDLE --unset=ORCA_PANE_KEY orca orchestration worker-start --agent claude' \
-  'env ORCA_TERMINAL_HANDLE= ORCA_TAB_ID=x orca orchestration worker-start --agent claude' \
-  'ORCA_TERMINAL_HANDLE= env -u ORCA_PANE_KEY orca orchestration worker-start --agent=codex' \
-  'sh scripts/orca-mailbox.sh exec worker-start --run r --task t --agent claude' \
-  '"$ROOT/scripts/orca-mailbox.sh" exec worker-start --agent=codex --worktree name:x' \
-  '/opt/plugin/scripts/orca-mailbox.sh exec worker-start --agent claude' \
-  'bash -x scripts/orca-mailbox.sh exec worker-start --agent claude' \
-  '. scripts/orca-mailbox.sh exec worker-start --agent claude' \
-  'env -u ORCA_TAB_ID sh scripts/orca-mailbox.sh exec worker-start --agent claude' \
-  "perl -e 'alarm shift; exec @ARGV' 30 sh scripts/orca-mailbox.sh exec worker-start --agent claude" \
-  "sh -c 'sh scripts/orca-mailbox.sh exec worker-start --agent claude'" \
-  "cd \"\$R\" && bash -c \"env -u ORCA_TAB_ID orca orchestration worker-start --agent claude\" | jq ."; do
+  'sudo -u someone -- env -i FOO=1 orca orchestration worker-start --agent claude'; do
   check "deny without answers: $c" deny "$(input "$c" "$none")"
   check "allow with answers: $c" allow "$(input "$c" "$all")"
 done
@@ -180,11 +161,6 @@ check "auto: missing effort denies" deny "$(input 'orca terminal create --comman
 check "auto: other agent denies" deny "$(input 'orca terminal create --command "codex -m claude-opus-5-5 -c model_reasoning_effort=high"' "$all")"
 check "auto: worker-start other effort denies" deny "$(input 'orca orchestration worker-start --agent claude --model claude-opus-5-5 --effort=max' "$all")"
 check "auto: worker-start without model denies" deny "$(input 'orca orchestration worker-start --agent claude --effort high' "$all")"
-check "auto: mailbox worker-start with the configured values allows" allow "$(input 'sh scripts/orca-mailbox.sh exec worker-start --task t --agent claude --model claude-opus-5-5 --effort high' '')"
-check "auto: mailbox worker-start other model denies" deny "$(input 'sh scripts/orca-mailbox.sh exec worker-start --agent claude --model claude-sonnet-5 --effort high' "$all")"
-check "auto: env -u worker-start other effort denies" deny "$(input 'env -u ORCA_TAB_ID -u ORCA_PANE_KEY orca orchestration worker-start --agent claude --model claude-opus-5-5 --effort max' "$all")"
-has "auto: mailbox worker-start reason names the launch's values" \
-  "$(reason "$(input 'sh scripts/orca-mailbox.sh exec worker-start --agent claude --model claude-sonnet-5 --effort high' '')")" "agent claude, model claude-sonnet-5, effort high"
 check "auto: bash -c inside --command with the configured values allows" allow "$(input "orca terminal create --command \"bash -c 'claude --model claude-opus-5-5 --effort high'\"" '')"
 check "auto: bash -c inside --command with other model denies" deny "$(input "orca terminal create --command \"bash -c 'claude --model claude-sonnet-5 --effort high'\"" "$all")"
 check "auto: second launch mismatching denies" deny "$(input "$ok && orca terminal create --command 'claude --model x --effort high'" "$all")"

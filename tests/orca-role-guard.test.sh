@@ -53,7 +53,6 @@ check() {
 }
 # reason <json>: the deny reason the guard gives.
 reason() { printf '%s' "$1" | sh "$guard" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty'; }
-has() { result "$1" yes "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
 write() { jq -n --arg cwd "${2:-$repo}" --arg f "$1" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f,content:"x"}}'; }
 # edit <path> <new_string line count> [replace_all]
 edit() { jq -n --arg cwd "$repo" --arg f "$1" --arg s "$(lines "$2")" --argjson all "${3:-false}" '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:$f,old_string:"line 1",new_string:$s,replace_all:$all}}'; }
@@ -191,66 +190,6 @@ for s in worker-start dispatch run-create run-use reset worker-stop worker-aband
 done
 check "child chained orca orchestration worker-start" deny "$(run 'orca orchestration check --json && orca orchestration worker-start --worktree new-child')"
 check "child /usr/local/bin/orca orchestration reset" deny "$(run '/usr/local/bin/orca orchestration reset --all')"
-# Master-only verbs behind env -u stay blocked like the plain forms.
-for s in worker-start run-create task-create; do
-  check "child env -u orca orchestration $s" deny "$(run "env -u ORCA_TERMINAL_HANDLE orca orchestration $s --json")"
-done
-# Acting as another terminal: the attestation variables removed or reassigned.
-for c in \
-  'env -u ORCA_TERMINAL_HANDLE -u ORCA_PANE_KEY -u ORCA_AGENT_PANE -u ORCA_AGENT_LAUNCH -u ORCA_AGENT_LAUNCH_TOKEN -u ORCA_TAB_ID orca orchestration send --from term_m --to term_x' \
-  'env -u ORCA_TAB_ID orca orchestration check --terminal term_m --json' \
-  'env -uORCA_PANE_KEY orca orchestration reply --from term_m' \
-  'env --unset ORCA_AGENT_LAUNCH_TOKEN orca orchestration ask --from term_m' \
-  'env --unset=ORCA_AGENT_PANE orca orchestration send --from term_m' \
-  'env -i PATH=/usr/bin orca orchestration send --from term_m' \
-  'env -u X -i orca orchestration send' \
-  'env - orca orchestration check --terminal term_m' \
-  'env --ignore-environment orca orchestration check' \
-  'unset ORCA_TERMINAL_HANDLE; orca orchestration send --from term_m' \
-  'unset -v FOO ORCA_AGENT_LAUNCH && orca orchestration send' \
-  'ORCA_TERMINAL_HANDLE=term_m orca orchestration send --from term_m' \
-  'export ORCA_TAB_ID=x; orca orchestration check --terminal term_m' \
-  'env ORCA_PANE_KEY= orca orchestration ask --from term_m' \
-  "sh -c 'env -u ORCA_TAB_ID orca orchestration check --terminal term_m'" \
-  "$(printf 'env -u ORCA_TERMINAL_HANDLE \\\n  orca orchestration send --from term_m')"; do
-  check "child impersonation: $c" deny "$(run "$c")"
-done
-has "child impersonation: reason" "$(reason "$(run 'env -u ORCA_TAB_ID orca orchestration send')")" "only as its own terminal"
-# Not impersonation: other variables, or no orchestration call.
-check "child env -u other variable orca orchestration send" allow "$(run 'env -u FOO orca orchestration send --json')"
-check "child ORCA_OTHER= orca orchestration send" allow "$(run 'ORCA_TERMINAL_HANDLE_X=1 orca orchestration send --json')"
-check "child env -i without orchestration" allow "$(run 'env -i PATH=/usr/bin sh tests/x.test.sh')"
-check "child echo of the variable" allow "$(run 'echo "$ORCA_TERMINAL_HANDLE"; orca orchestration check --json')"
-check "child env -u without orchestration" allow "$(run 'env -u ORCA_TAB_ID sh tests/x.test.sh')"
-# The coordinator's mailbox terminal and the wrappers that act as it.
-for c in \
-  'sh scripts/orca-mailbox.sh ensure' \
-  'sh scripts/orca-mailbox.sh exec check --json' \
-  'sh scripts/orca-mailbox.sh exec send --to term_x' \
-  'sh scripts/orca-mailbox.sh exec ask --question q' \
-  'sh scripts/orca-mailbox.sh exec reply --id m' \
-  'sh scripts/orca-mailbox.sh exec worker-start --agent claude' \
-  '"$ROOT/scripts/orca-mailbox.sh" exec send' \
-  "sh \"\$ROOT/scripts/orca-mailbox.sh\" 'exec' send" \
-  '/opt/plugin/scripts/orca-mailbox.sh ensure --objective x' \
-  '. scripts/orca-mailbox.sh exec check' \
-  "bash -c 'sh scripts/orca-mailbox.sh exec send'" \
-  'cd x && sh scripts/orca-mailbox.sh exec check | jq .' \
-  'sh scripts/orca-wait.sh --run r --terminal term_m' \
-  'sh scripts/orca-wait.sh --terminal=term_m --run r' \
-  'sh "$ROOT/scripts/orca-worker-start.sh" --run r --task t --from term_m --terminal t --worktree w' \
-  '. hooks/orca-lib.sh; orca_unattested orchestration send --from term_m'; do
-  check "child mailbox: $c" deny "$(run "$c")"
-done
-has "child mailbox: reason" "$(reason "$(run 'sh scripts/orca-mailbox.sh exec send')")" "only as its own terminal"
-check "child sh -n of the mailbox script" allow "$(run 'sh -n scripts/orca-mailbox.sh')"
-check "child cat of the mailbox script" allow "$(run 'cat scripts/orca-mailbox.sh')"
-check "child grep in the mailbox script" allow "$(run 'grep -n exec scripts/orca-mailbox.sh')"
-check "child mailbox test" allow "$(run 'sh tests/orca-mailbox.test.sh')"
-check "child orca-wait.sh without --terminal" allow "$(run 'sh scripts/orca-wait.sh --run r')"
-check "master mailbox exec send" allow "$(run 'sh scripts/orca-mailbox.sh exec send --to term_x' "$repo")"
-check "master env -u orca orchestration send" allow "$(run 'env -u ORCA_TAB_ID orca orchestration send --from term_m' "$repo")"
-check "master orca-wait.sh --terminal" allow "$(run 'sh scripts/orca-wait.sh --run r --terminal term_m' "$repo")"
 for s in create rm remove set; do
   check "child orca worktree $s" deny "$(run "orca worktree $s --worktree name:x")"
 done
@@ -315,6 +254,7 @@ check "Orca linked vs git main: Write README" deny "$(write "$liar_main/README.m
 # --- .orca-dev-ops.json limits (read from the main checkout)
 # The main repo already has 3 task worktrees (child, sibling, liar): the default limit is reached.
 check "maxWorktrees default 3 reached: orca worktree create" deny "$(run 'orca worktree create --name cc-x --json' "$repo")"
+has() { result "$1" yes "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
 has "maxWorktrees reached: message" "$(reason "$(run 'orca worktree create --name cc-x' "$repo")")" "already has 3 task worktree(s) and the limit is 3"
 check "maxWorktrees reached: orca worktree list passes" allow "$(run 'orca worktree list --json' "$repo")"
 check "maxWorktrees reached: create only mentioned passes" allow "$(run 'echo "orca worktree create"' "$repo")"

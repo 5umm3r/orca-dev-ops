@@ -145,27 +145,8 @@ cat "$ORCA_STUB_LOG" >> "$all"
 result "--out interrupted: no process left" gone "$(kill -0 "$pid" 2>/dev/null && echo running || echo gone)"
 result "--out interrupted: no file and no temp file" "" "$(ls -A "$tmp/res")"
 
-# --- --terminal: every check acts as the given terminal, without the attestation variables
-export ORCA_STUB_ENV_LOG="$tmp/env" ORCA_TERMINAL_HANDLE=term_own ORCA_PANE_KEY=pane \
-  ORCA_AGENT_PANE=1 ORCA_AGENT_LAUNCH=1 ORCA_AGENT_LAUNCH_TOKEN=tok ORCA_TAB_ID=tab
-: > "$ORCA_STUB_ENV_LOG"
-result "--terminal: heartbeat then worker_done" "0 2" "$(wait_for 'heartbeat worker_done' --terminal term_mail)"
-has "--terminal: first wait as the terminal" "$(call 1)" "orchestration check --terminal term_mail --run run_1 --wait --timeout-ms"
-has "--terminal: acknowledgment as the terminal" "$(call 2)" "orchestration check --terminal term_mail --run run_1 --ack dlv_1 --wait"
-result "--terminal: every check unattested" "- -" "$(tr '\n' ' ' < "$ORCA_STUB_ENV_LOG" | sed 's/ $//')"
-result "--terminal: deadline acknowledgment" "2 2" "$(wait_for 'heartbeat heartbeat' --terminal term_mail --timeout-ms 1)"
-has "--terminal: deadline acknowledgment as the terminal" "$(call 2)" "--terminal term_mail --run run_1 --ack dlv_1 --json"
-: > "$ORCA_STUB_ENV_LOG"
-result "without --terminal: attested" "0 1" "$(wait_for worker_done)"
-lacks "without --terminal: no --terminal option" "$(call 1)" "--terminal"
-result "without --terminal: the attestation is kept" \
-  "ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID" "$(cat "$ORCA_STUB_ENV_LOG")"
-unset ORCA_STUB_ENV_LOG ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID
-
 # --- usage
 usage() { sh "$script" "$@" >/dev/null 2>&1; echo "$?"; }
-result "missing --terminal value" 64 "$(usage --run r --terminal)"
-result "empty --terminal" 64 "$(usage --run r --terminal '')"
 result "no arguments" 64 "$(usage)"
 result "missing --run value" 64 "$(usage --run)"
 result "unknown option" 64 "$(usage --run r --bogus)"

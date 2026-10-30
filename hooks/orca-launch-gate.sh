@@ -10,11 +10,8 @@
 #     same --command <value> after any word of the command whose basename is
 #     orca-terminal-create.sh (run directly, by a shell with options, by `.`/`source`, or by
 #     another wrapper such as perl or gtimeout), or
-#   orca orchestration worker-start ... --agent ...   without --terminal, also as
-#     `exec worker-start ...` after any word whose basename is orca-mailbox.sh (run the same
-#     ways as orca-terminal-create.sh).
-# Wrappers such as sudo or env are skipped together with their options (env -u/--unset VAR,
-# VAR=value assignments), and the command string
+#   orca orchestration worker-start ... --agent ...   without --terminal.
+# Wrappers such as sudo or env are skipped together with their options, and the command string
 # of `sh`/`bash`/`dash`/`zsh -c` is checked the same way, recursively.
 # The launch is allowed when the session transcript, after the last previous successful launch,
 # holds answered questions for all three topics: header `Agent`, `Model`, `Effort` (trimmed,
@@ -98,7 +95,7 @@ skip_prefix='i = 1
     p = $i; i++
     while (i <= NF && $i ~ /^-/) {
       if ($i == "--") { i++; break }
-      if ((p == "sudo" && $i ~ /^-[ugpCDhrtTUR]$/) || (p == "env" && $i ~ /^(-[uCSP]|--(unset|chdir|split-string))$/) || (p == "exec" && $i == "-a") || (p == "time" && $i ~ /^-[of]$/)) i++
+      if ((p == "sudo" && $i ~ /^-[ugpCDhrtTUR]$/) || (p == "env" && $i ~ /^-[uCSP]$/) || (p == "exec" && $i == "-a") || (p == "time" && $i ~ /^-[of]$/)) i++
       i++
     }
   }
@@ -120,17 +117,10 @@ shell_string='nested = ""
     if (cmode && j <= NF) nested = $j
   }'
 # After skip_prefix: nested (see shell_string); or s, the index of the first word that may hold
-# --command, for `orca terminal create` or any word whose basename is orca-terminal-create.sh;
-# or ws, the index of the first option of `orca orchestration worker-start` or of
-# `<any word whose basename is orca-mailbox.sh> exec worker-start`.
-launch_start="$shell_string"'; s = 0; ws = 0
+# --command, for `orca terminal create` or any word whose basename is orca-terminal-create.sh.
+launch_start="$shell_string"'; s = 0
   if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
-  if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") ws = i + 3
-  if (!s && !ws && nested == "") for (j = 1; j <= NF; j++) {
-    b = $j; sub(/.*\//, "", b)
-    if (b == "orca-terminal-create.sh") { s = j + 1; break }
-    if (b == "orca-mailbox.sh" && $(j + 1) == "exec" && $(j + 2) == "worker-start") { ws = j + 3; break }
-  }'
+  if (!s && nested == "") for (j = 1; j <= NF; j++) { b = $j; sub(/.*\//, "", b); if (b == "orca-terminal-create.sh") { s = j + 1; break } }'
 
 us=$(printf '\037')
 # value_agents <command>: "<agent>\037<model>\037<effort>" for every simple command in <command>
@@ -175,9 +165,9 @@ is_launch() {
         else continue
         gsub(/\036/, " ", v); print "command\t" v
       }
-    } else if (ws) {
+    } else if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") {
       agent = 0; term = 0
-      for (j = ws; j <= NF; j++) {
+      for (j = i + 3; j <= NF; j++) {
         if ($j == "--agent" || $j ~ /^--agent=/) agent = 1
         if ($j == "--terminal" || $j ~ /^--terminal=/) term = 1
       }
@@ -209,9 +199,9 @@ launch_params() {
         else continue
         gsub(/\036/, " ", v); print "C", v
       }
-    } else if (ws) {
+    } else if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") {
       agent = model = effort = ""; has = 0; term = 0
-      for (j = ws; j <= NF; j++) {
+      for (j = i + 3; j <= NF; j++) {
         if ($j == "--agent" || $j ~ /^--agent=/) has = 1
         if ($j == "--terminal" || $j ~ /^--terminal=/) term = 1
         if ($j ~ /^--(agent|model|effort)$/ && j < NF) { k = substr($j, 3); v = $(j + 1); j++ }

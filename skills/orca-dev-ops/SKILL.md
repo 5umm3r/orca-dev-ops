@@ -150,14 +150,16 @@ The coordinator's Run belongs to a mailbox terminal, not to the
 coordinator's own agent terminal (see "Communication and state"). Once per
 session, before the first child, run the plugin's `scripts/orca-mailbox.sh
 ensure` (resolved the same way as `orca-base-ref.sh` in "Invariants"): it
-finds the plain shell titled `orca-mailbox` in the main checkout or creates
-one, binds a Run to it when none is bound, and prints
+finds the plain shell pane with pane title `orca-mailbox` in the main
+checkout or splits one off the coordinator's own pane (`--direction
+vertical|horizontal`, default vertical; run it inside the coordinator's Orca
+terminal), binds a Run to it when none is bound, and prints
 `{"terminal": "<M>", "run": "<run_id>"}`. Exit 4: several `orca-mailbox`
-terminals, handles on stderr (close all but one, then rerun); 1: another
-failure. From then on every coordinator verb acts as M:
+panes, handles on stderr (close all but one, then rerun); 1: another
+failure. The pane closes with the coordinator's tab. From then on every coordinator verb acts as M:
 `orca-mailbox.sh exec <verb> ...` adds `--from M` (`--terminal M` for
 `check`), `orca-worker-start.sh --from M`, and `orca-wait.sh --terminal M`.
-`exec` never creates the terminal; exit 3 means it is gone, so run `ensure`
+`exec` never creates the pane; exit 3 means it is gone, so run `ensure`
 again. Do not rely on `run-current` of the coordinator's own terminal.
 
 Prefer `orca orchestration worker-start --agent ... --model ... --effort ...`
@@ -529,12 +531,14 @@ release -> worktree removal.
   (the gaps between consecutive `check --wait` calls of `orca-wait.sh`), it
   skips the Enter but leaves the text in the prompt. There is no Orca
   setting to turn this off.
-- Hence the mailbox terminal (verified live on Orca 1.4.243): a plain shell
-  created with `orca terminal create --worktree path:<main checkout> --title
-  orca-mailbox` (no `--command`) owns the Run. A message sent to `run:<id>`
+- Hence the mailbox pane (verified live on Orca 1.4.243): a plain shell split
+  off the coordinator's pane (`orca terminal split --terminal
+  $ORCA_TERMINAL_HANDLE`, then `orca terminal set-pane-title --title
+  orca-mailbox`; `terminal list` shows it as `paneTitle`, while `title` is
+  the tab's) owns the Run. A message sent to `run:<id>`
   put no text into it (it has no agent status) nor into the coordinator's
   agent terminal; `check --terminal <M> --run <id>` returned the Delivery and
-  `--ack` worked the same way. Closing the mailbox terminal fences its Run.
+  `--ack` worked the same way. Closing the mailbox pane fences its Run.
   `check` takes `--terminal`, never `--from`; every other coordinator verb
   (`run-create`, `run-current`, `task-create`, `worker-start`, `send`,
   `reply`, `ask`) takes `--from`.

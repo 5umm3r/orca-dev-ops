@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests for scripts/orca-mailbox.sh with a stub orca that scripts `terminal list`, `terminal
-# create`, and the orchestration verbs (never a live terminal or Run).
+# split`, `terminal set-pane-title`, and the orchestration verbs (never a live terminal or Run).
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/helpers.sh"
 script="$root/scripts/orca-mailbox.sh"
 export ORCA_STUB_LOG="$tmp/calls" ORCA_STUB_ENV_LOG="$tmp/env"
@@ -28,44 +28,70 @@ env_of() { n=$(grep -n -- "^$1" "$ORCA_STUB_LOG" | sed -n '1s/:.*//p'); sed -n "
 has() { result "$1" yes "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
 lacks() { result "$1" no "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
 
-# --- ensure: creates the terminal and the Run
+# --- ensure: splits the caller's pane and creates the Run
 unset ORCA_STUB_RUN
 result "ensure without a mailbox" 0 "$(mailbox none ensure)"
-result "ensure without a mailbox: JSON" '{"terminal":"term_1","run":"run_created"}' "$(jq -c . "$tmp/out")"
+result "ensure without a mailbox: JSON" '{"terminal":"term_split","run":"run_created"}' "$(jq -c . "$tmp/out")"
 has "ensure lists the main checkout's terminals" "$(call 'terminal list')" "--worktree path:$repo --json"
-has "ensure creates a plain shell titled orca-mailbox" "$(call 'terminal create')" "--worktree path:$repo --title orca-mailbox --json"
-lacks "ensure: no --command" "$(call 'terminal create')" "--command"
+result "ensure splits the caller's own pane" "terminal split --terminal term_own --direction vertical --json" "$(call 'terminal split')"
+result "ensure: the split stays attested" "ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID" "$(env_of 'terminal split')"
+result "ensure names the new pane" "terminal set-pane-title --terminal term_split --title orca-mailbox --json" "$(call 'terminal set-pane-title')"
+result "ensure: no terminal create" 0 "$(count 'terminal create')"
+result "ensure: no close" 0 "$(count 'terminal close')"
 result "ensure: the list stays attested" "ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID" "$(env_of 'terminal list')"
-has "ensure asks run-current as the mailbox" "$(call 'orchestration run-current')" "--from term_1 --json"
+has "ensure asks run-current as the mailbox" "$(call 'orchestration run-current')" "--from term_split --json"
 result "ensure: run-current unattested" - "$(env_of 'orchestration run-current')"
-has "ensure creates the Run as the mailbox" "$(call 'orchestration run-create')" "--from term_1 --objective orca-dev-ops coordinator --json"
+has "ensure creates the Run as the mailbox" "$(call 'orchestration run-create')" "--from term_split --objective orca-dev-ops coordinator --json"
 result "ensure: run-create unattested" - "$(env_of 'orchestration run-create')"
 result "ensure --objective" 0 "$(mailbox none ensure --objective 'ship it')"
 has "ensure --objective is passed on" "$(call 'orchestration run-create')" "--objective ship it --json"
+result "ensure --direction horizontal" 0 "$(mailbox none ensure --direction horizontal)"
+has "ensure --direction is passed on" "$(call 'terminal split')" "--direction horizontal --json"
+result "ensure --direction vertical" 0 "$(mailbox none ensure --direction vertical)"
+has "ensure --direction vertical is passed on" "$(call 'terminal split')" "--direction vertical --json"
 result "ensure: run-create fenced" 1 "$(ORCA_STUB_RUN_CREATE=fenced mailbox none ensure)"
 has "ensure: run-create fenced: receipt on stderr" "$(cat "$tmp/err")" "consumer_fenced"
 result "ensure: run-create fenced: nothing on stdout" "" "$(cat "$tmp/out")"
-result "ensure: terminal create fails" 1 "$(ORCA_STUB_CREATE=other mailbox none ensure)"
-result "ensure: terminal create fails: no run calls" 0 "$(count 'orchestration')"
+result "ensure: split fails" 1 "$(ORCA_STUB_SPLIT=fail mailbox none ensure)"
+has "ensure: split fails: receipt on stderr" "$(cat "$tmp/err")" "not_found"
+result "ensure: split fails: no pane title" 0 "$(count 'terminal set-pane-title')"
+result "ensure: split fails: no close" 0 "$(count 'terminal close')"
+result "ensure: split fails: no run calls" 0 "$(count 'orchestration')"
+result "ensure: set-pane-title fails" 1 "$(ORCA_STUB_PANE_TITLE=fail mailbox none ensure)"
+has "ensure: set-pane-title fails: receipt on stderr" "$(cat "$tmp/err")" "set-pane-title failed"
+result "ensure: set-pane-title fails: the new pane is closed" "terminal close --terminal term_split" "$(call 'terminal close')"
+result "ensure: set-pane-title fails: no run calls" 0 "$(count 'orchestration')"
+result "ensure: set-pane-title fails: nothing on stdout" "" "$(cat "$tmp/out")"
+result "ensure without ORCA_TERMINAL_HANDLE" 1 "$(unset ORCA_TERMINAL_HANDLE; mailbox none ensure)"
+has "ensure without ORCA_TERMINAL_HANDLE: says where to run" "$(cat "$tmp/err")" "inside the coordinator's Orca terminal"
+result "ensure without ORCA_TERMINAL_HANDLE: no split" 0 "$(count 'terminal split')"
+result "ensure without ORCA_TERMINAL_HANDLE: no state change" 0 "$(count 'terminal set-pane-title\|^terminal close\|orchestration')"
+result "ensure with an empty ORCA_TERMINAL_HANDLE" 1 "$(ORCA_TERMINAL_HANDLE= mailbox none ensure)"
+result "ensure with an empty ORCA_TERMINAL_HANDLE: no split" 0 "$(count 'terminal split')"
 
-# --- ensure: reuses the terminal and the Run
+# --- ensure: reuses the pane and the Run
 result "ensure with a mailbox and a Run" 0 "$(ORCA_STUB_RUN=run_live mailbox shell,agent,mailbox ensure)"
 result "ensure with a mailbox and a Run: JSON" '{"terminal":"term_3","run":"run_live"}' "$(jq -c . "$tmp/out")"
-result "ensure reuses the terminal" 0 "$(count 'terminal create')"
+result "ensure reuses the pane" 0 "$(count 'terminal split')"
+result "ensure reuses the pane: no title call" 0 "$(count 'terminal set-pane-title')"
 result "ensure reuses the Run" 0 "$(count 'orchestration run-create')"
+result "ensure reuses the pane without ORCA_TERMINAL_HANDLE" 0 "$(unset ORCA_TERMINAL_HANDLE; ORCA_STUB_RUN=run_live mailbox mailbox ensure)"
 result "ensure with a mailbox, no Run" 0 "$(mailbox mailbox ensure)"
 result "ensure with a mailbox, no Run: JSON" '{"terminal":"term_1","run":"run_created"}' "$(jq -c . "$tmp/out")"
-result "ensure with a mailbox, no Run: no create" 0 "$(count 'terminal create')"
-result "an agent titled orca-mailbox is not the mailbox" 0 "$(mailbox mailbox-agent ensure)"
-result "an agent titled orca-mailbox: a new terminal" 1 "$(count 'terminal create')"
-result "a closed mailbox is not the mailbox" 1 "$(mailbox mailbox-closed ensure >/dev/null; count 'terminal create')"
-result "an orphaned mailbox is not the mailbox" 1 "$(mailbox mailbox-orphan ensure >/dev/null; count 'terminal create')"
+result "ensure with a mailbox, no Run: no split" 0 "$(count 'terminal split')"
+result "a tab titled orca-mailbox with another paneTitle is not the mailbox" 0 "$(mailbox mailbox-tab ensure)"
+result "a tab titled orca-mailbox: a new split" 1 "$(count 'terminal split')"
+result "an agent pane titled orca-mailbox is not the mailbox" 0 "$(mailbox mailbox-agent ensure)"
+result "an agent pane titled orca-mailbox: a new split" 1 "$(count 'terminal split')"
+result "a closed mailbox is not the mailbox" 1 "$(mailbox mailbox-closed ensure >/dev/null; count 'terminal split')"
+result "an orphaned mailbox is not the mailbox" 1 "$(mailbox mailbox-orphan ensure >/dev/null; count 'terminal split')"
 
 # --- duplicates: exit 4 and nothing used
 result "ensure with two mailboxes" 4 "$(mailbox mailbox,shell,mailbox ensure)"
 result "two mailboxes: handles on stderr" "term_1 term_3" "$(grep '^term_' "$tmp/err" | tr '\n' ' ' | sed 's/ $//')"
-result "two mailboxes: nothing created" 0 "$(count 'terminal create')"
+result "two mailboxes: nothing split" 0 "$(count 'terminal split')"
 result "two mailboxes: no orchestration call" 0 "$(count 'orchestration')"
+result "a mailbox and a tab titled orca-mailbox: one match" 0 "$(mailbox mailbox,mailbox-tab ensure)"
 result "exec with two mailboxes" 4 "$(mailbox mailbox,mailbox exec send --to x)"
 result "exec with two mailboxes: no orchestration call" 0 "$(count 'orchestration')"
 
@@ -93,7 +119,7 @@ result "exec: Orca's stderr passed through" "orca stub: send failed" "$(cat "$tm
 # --- exec without a mailbox: exit 3, never creates one
 result "exec without a mailbox" 3 "$(mailbox shell,agent exec send --to x)"
 has "exec without a mailbox: tells to run ensure" "$(cat "$tmp/err")" "orca-mailbox.sh ensure"
-result "exec without a mailbox: nothing created" 0 "$(count 'terminal create')"
+result "exec without a mailbox: nothing created" 0 "$(count 'terminal split')"
 result "exec without a mailbox: no orchestration call" 0 "$(count 'orchestration')"
 
 # --- other failures

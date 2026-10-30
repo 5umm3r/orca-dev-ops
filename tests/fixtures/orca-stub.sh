@@ -26,7 +26,9 @@
 #                       agentIdentity, header on `terminal read`), mailbox (a plain shell titled
 #                       orca-mailbox), mailbox-agent (the same with agentIdentity claude),
 #                       mailbox-closed (the same as mailbox with connected false), or
-#                       mailbox-orphan (the same as mailbox with orphaned true). The Nth item of a
+#                       mailbox-orphan (the same as mailbox with orphaned true), or mailbox-tab
+#                       (a plain shell whose tab title is orca-mailbox but whose paneTitle is
+#                       not). mailbox rows carry paneTitle orca-mailbox. The Nth item of a
 #                       set has the handle term_N. `terminal read` answers by the latest list call.
 #                       Needs ORCA_STUB_LOG.
 #   ORCA_STUB_TERMINALS_RECREATED  the same kind of list, used from the second `terminal create`
@@ -35,7 +37,9 @@
 #                       ok; the last repeats): ok (handle term_1), timeout (the runtime_error
 #                       JSON on stdout, exit 1), timeout-stderr (the same on stderr), other
 #                       (another error).
-#   ORCA_STUB_WORKTREE_LIST  `worktree list`: ok (default; the git worktrees of the --repo main
+#   ORCA_STUB_SPLIT     `terminal split`: ok (default; handle term_split) or fail (ok false, exit 1).
+#   ORCA_STUB_PANE_TITLE  `terminal set-pane-title`: ok (default) or fail (ok false, exit 1).
+#   ORCA_STUB_WORKTREE_LIST `worktree list`: ok (default; the git worktrees of the --repo main
 #                       checkout, main first), truncated (the same with truncated: true).
 #   ORCA_STUB_CHECK     space-separated results of successive `orchestration check` calls
 #                       (default: timeout): timeout (empty, timedOut), empty (empty, not timed
@@ -162,6 +166,7 @@ case "$1 $2" in
   jq -n --arg s "$state" '[$s | split(",") | to_entries[] | select(.value != "none") | {
       handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w",
       title: (if .value | startswith("mailbox") then "orca-mailbox" else "agent" end),
+      paneTitle: (if .value == "mailbox-tab" then "other" elif .value | startswith("mailbox") then "orca-mailbox" else null end),
       preview: "", connected: (.value != "mailbox-closed"), orphaned: (.value == "mailbox-orphan"),
       agentIdentity: (if .value == "agent" or .value == "mailbox-agent" then "claude" else null end)}]
     | {ok: true, result: {terminals: ., totalCount: length, truncated: false}}'
@@ -173,6 +178,21 @@ case "$1 $2" in
   timeout-stderr) echo '{"code":"runtime_error","message":"Timed out waiting for terminal handle after creation"}' >&2; exit 1 ;;
   other) echo '{"ok":false,"error":{"code":"not_found","message":"Worktree not found."}}'; exit 1 ;;
   esac
+  ;;
+"terminal split")
+  case "${ORCA_STUB_SPLIT:-ok}" in
+  ok) echo '{"ok":true,"result":{"split":{"handle":"term_split","tabId":"tab","paneRuntimeId":1,"leafId":"leaf"}}}' ;;
+  fail) echo '{"ok":false,"error":{"code":"not_found","message":"Terminal not found."}}'; exit 1 ;;
+  esac
+  ;;
+"terminal set-pane-title")
+  case "${ORCA_STUB_PANE_TITLE:-ok}" in
+  ok) echo '{"ok":true,"result":{"paneTitle":"set"}}' ;;
+  fail) echo '{"ok":false,"error":{"code":"runtime_error","message":"set-pane-title failed"}}'; exit 1 ;;
+  esac
+  ;;
+"terminal close")
+  echo '{"ok":true,"result":{"closed":true}}'
   ;;
 "terminal read")
   if [ -n "${ORCA_STUB_TERMINALS:-}" ]; then

@@ -135,5 +135,12 @@ result "ensure: empty --objective" 64 "$(mailbox none ensure --objective '')"
 result "exec without a verb" 64 "$(mailbox none exec)"
 result "exec with an option instead of a verb" 64 "$(mailbox none exec --from x send)"
 result "usage errors call no orca" 0 "$(count .)"
+# The launch gate detects only the adjacent words `orca-mailbox.sh exec worker-start`; every other
+# order must stop here before any orca call, or a launch could pass the gate.
+for a in "--x exec worker-start" "exec --from x worker-start" "exec -- worker-start" "exec --json worker-start"; do
+  # shellcheck disable=SC2086 # split on purpose
+  result "launch-gate order: $a" 64 "$(mailbox none $a --agent claude)"
+  result "launch-gate order: $a calls no orca" 0 "$(count .)"
+done
 
 exit "$fail"

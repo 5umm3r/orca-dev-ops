@@ -16,8 +16,21 @@
 # Orca attestation variables; see orca_unattested in hooks/orca-lib.sh): pass the handle of the
 # mailbox terminal that owns the Run (scripts/orca-mailbox.sh). Without it, worker-start is
 # attested as the calling terminal.
-# Any other worker-start failure prints the receipt and exits 1 without a retry. Usage errors
-# exit 64. Requires orca and jq.
+# Any other worker-start failure prints the receipt and exits 1 without a retry.
+# Wrong-ID guard (a request ID once passed as --task left the task `ready` and unassigned): before
+# anything else that touches Orca, --task must match ^task_[A-Za-z0-9]+$ and be listed by
+# `task-list --run <run> --json` (.result.tasks[].id; run as --from when given). After worker-start
+# returns ok, the receipt's .result.dispatchId (the field Orca 1.4.244's worker-start handler
+# prints) must be non-empty.
+# Exit codes:
+#   0   started; the receipt is on stdout
+#   1   another failure, including a failing task-list call (its receipt is on stderr)
+#   3   no agent header on screen; worker-start not called
+#   4   worker-start failed twice on the start-up race
+#   5   --task is not a task ID, or not listed in the Run; worker-start not called
+#   6   worker-start returned ok without a dispatch ID (receipt on stderr); not a success
+#   64  usage error
+# Requires orca and jq. Do not pipe the output into tail or head: that hides the exit code.
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/hooks/orca-lib.sh"
 usage() { printf 'orca-worker-start: %s\n' "$*" >&2; exit 64; }
@@ -43,8 +56,22 @@ done
 [ -n "$run" ] && [ -n "$task" ] && [ -n "$term" ] && [ -n "$wt" ] \
   || usage "--run, --task, --terminal, and --worktree are required"
 case "$delay,$limit" in ,* | *, | *[!0-9,]*) usage "--retry-delay and --header-timeout take whole seconds" ;; esac
+if [ "${task#task_}" = "$task" ] || [ -z "${task#task_}" ] \
+  || [ "$(printf '%s.' "${task#task_}" | LC_ALL=C tr -d 'A-Za-z0-9')" != . ]; then
+  die 5 "--task '$task' is not a task ID (^task_[A-Za-z0-9]+\$); a request ID or run ID does not work. worker-start not called"
+fi
 command -v orca >/dev/null 2>&1 || die 1 "orca is not on PATH"
 command -v jq >/dev/null 2>&1 || die 1 "jq is not on PATH"
+
+# 0. The task must be listed in the Run.
+if [ -n "$from" ]; then set -- orca_unattested orchestration task-list --from "$from"
+else set -- orca orchestration task-list
+fi
+list=$("$@" --run "$run" --json 2>&1) \
+  && printf '%s' "$list" | jq -e '.ok != false and (.result.tasks | type) == "array"' >/dev/null 2>&1 \
+  || { printf '%s\n' "$list" >&2; die 1 "task-list for run $run failed; worker-start not called"; }
+printf '%s' "$list" | jq -e --arg t "$task" 'any(.result.tasks[]; .id == $t)' >/dev/null 2>&1 \
+  || die 5 "task $task is not listed in run $run; worker-start not called"
 
 # 1. Wait for the agent header on screen.
 waited=0
@@ -68,10 +95,17 @@ start() {
     && ! printf '%s' "$out" | jq -e '.ok == false' >/dev/null 2>&1
 }
 receipt() { [ -z "$out" ] || printf '%s\n' "$out"; cat "$err" >&2; }
-if start; then receipt; exit 0; fi
+# started: after an ok worker-start, requires a dispatch ID in the receipt.
+started() {
+  if [ -n "$(printf '%s' "$out" | jq -r '.result.dispatchId // empty | strings' 2>/dev/null)" ]; then receipt; exit 0; fi
+  [ -z "$out" ] || printf '%s\n' "$out" >&2
+  cat "$err" >&2
+  die 6 "worker-start for task $task on $term started without a dispatch ID; do not report it as started"
+}
+if start; then started; fi
 { printf '%s\n' "$out"; cat "$err"; } | grep -Eq 'not (running )?a recognized agent' || { receipt; exit 1; }
 printf 'orca-worker-start: %s is not recognized as an agent yet; retrying in %ss\n' "$term" "$delay" >&2
 sleep "$delay"
-if start; then receipt; exit 0; fi
+if start; then started; fi
 receipt
 die 4 "worker-start failed twice for task $task on $term; stop and report instead of re-running task-create"

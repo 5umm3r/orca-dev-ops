@@ -159,6 +159,8 @@ Bash)
   mailbox="A worker talks to the coordinator only as its own terminal; the coordinator's mailbox terminal and calls that act as another terminal belong to the master session. Use orca orchestration ask / send / check from this terminal with the Orca environment unchanged."
   printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/'\"])orca-mailbox\.sh['\"]?[[:space:]]+['\"]?(ensure|exec)(['\"[:space:];&|)]|\$)" \
     && cdeny "Blocked orca-mailbox.sh. $mailbox"
+  printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/'\"])orca-task-create\.sh['\"]?[[:space:]]+['\"]?-" \
+    && cdeny "Blocked orca-task-create.sh (task-create is master-only). $mailbox"
   printf '%s' "$cmd" | grep -Eq "(orca-wait\.sh['\"]?([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?--terminal|orca-worker-start\.sh['\"]?([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?--from)([=[:space:]'\"]|\$)" \
     && cdeny "Blocked orca-wait.sh --terminal / orca-worker-start.sh --from. $mailbox"
   cmd_has 'orca_unattested' && cdeny "Blocked orca_unattested. $mailbox"

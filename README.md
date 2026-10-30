@@ -20,7 +20,8 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
 | `scripts/orca-terminal-create.sh` | Creates the child's agent terminal, waits through the `terminal create` handle timeout instead of recreating, and reports duplicate agent terminals |
-| `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the agent header is on screen, retrying once on the start-up race |
+| `scripts/orca-task-create.sh` | Creates a task as the mailbox terminal and prints the task ID only, read from `.result.task.id`; any other receipt is an error |
+| `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the task ID is confirmed in the Run and the agent header is on screen, retrying once on the start-up race; a start without a dispatch ID is an error |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
 | `scripts/orca-mailbox.sh` | Coordinator mailbox: finds or splits off (from the coordinator's pane, pane title `orca-mailbox`, closes with the tab) a plain shell pane that owns the Run, so Orca types no message notice into the coordinator's prompt, and runs orchestration verbs as that terminal |
 | `scripts/orca-wait.sh` | Coordinator wait: wakes on actionable mail, acknowledges heartbeat- and status-only batches and keeps the statuses |

@@ -172,8 +172,8 @@ flags, so the compatible path — not a deprecated fallback, the supported route
 for these agents — is: `orca worktree create` -> the plugin's
 `scripts/orca-terminal-create.sh` with the full agent command (resolved the
 same way as `orca-base-ref.sh` in "Invariants") -> wait for `tui-idle` ->
-`orca-mailbox.sh exec task-create` + `orca-worker-start.sh --from <M>
---terminal <handle> --worktree <sel>`.
+`orca-task-create.sh` + `orca-worker-start.sh --from <M> --terminal <handle>
+--worktree <sel>`.
 
 `orca terminal create` into a worktree created moments earlier can fail with
 `Timed out waiting for terminal handle after creation` although the agent
@@ -200,7 +200,21 @@ and retry once with the same task ID; never re-run `task-create`. If the retry
 also fails, stop and report. The plugin's `scripts/orca-worker-start.sh`
 (resolved the same way as `orca-base-ref.sh` in "Invariants") does the header
 check and the single retry in one step: exit 0 started, 3 no header (not
-called), 4 failed twice, 1 other failure.
+called), 4 failed twice, 5 `--task` is not a `task_...` ID or not listed in
+the Run's `task-list` (not called), 6 `worker-start` returned ok without a
+dispatch ID (not a start), 1 other failure (also a failing `task-list`).
+`orca-task-create.sh` (exit 0 with the task ID alone on stdout, 1 failed or
+no valid `.result.task.id`, 3 no mailbox pane, 64 usage) reads the ID from
+`.result.task.id` only; never extract it with a recursive `..` search, which
+finds the request ID first.
+
+Never pipe the output of a start command (`orca-task-create.sh`,
+`orca-worker-start.sh`, `orca-terminal-create.sh`, `task-create`,
+`worker-start`) into `tail` or `head`: that hides the error and the exit
+code. Save it to a file and check the exit code. Before reporting that a
+child started, confirm that the dispatch ID was obtained and that the task
+moved past `ready` (`worker-show` or `task-list`); the model name in the
+child's screen header is not proof.
 
 ```sh
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-mailbox.sh" ensure   # once per session: {"terminal": "<M>", "run": "<run_id>"}
@@ -209,10 +223,10 @@ orca worktree create --name cc-<topic> --base-branch <base ref> \
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-terminal-create.sh" --worktree name:cc-<topic> --title agent \
   --command "claude --dangerously-skip-permissions --settings '${CLAUDE_PLUGIN_ROOT}/templates/child-settings.json' --model <model> --effort <level>"
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 120000
-sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-mailbox.sh" exec task-create --run <run_id> --task-title "<topic>" \
-  --spec "Read <absolute prompt-file path> and execute it." --json
-sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --from <M> --run <run_id> --task <task_id> \
-  --terminal <handle> --worktree name:cc-<topic>
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-task-create.sh" --run <run_id> --title "<topic>" \
+  --spec "Read <absolute prompt-file path> and execute it." > <scratch>/task_id   # stdout is the task ID; check the exit code
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-worker-start.sh" --from <M> --run <run_id> --task "$(cat <scratch>/task_id)" \
+  --terminal <handle> --worktree name:cc-<topic> > <scratch>/start.json   # check the exit code and the dispatch ID
 ```
 
 The `--settings` file turns off Claude Code push notifications for the child
@@ -382,7 +396,7 @@ workflow's choices and what live tests showed.
   verification commands and output come in the `status` just before it, and
   changed paths in `--files-modified`. Review against those, not the summary.
 - Review fixes and follow-ups reuse the same terminal/worktree through a new
-  Task + Dispatch (`orca-mailbox.sh exec task-create` +
+  Task + Dispatch (`orca-task-create.sh` +
   `orca-worker-start.sh --from <M> --terminal <handle>`). Ignore any
   message whose payload dispatchId is not the active Dispatch.
 - Monitoring must match what this coordinator session can actually do:
@@ -576,6 +590,16 @@ release -> worktree removal.
   after `terminal wait --for tui-idle` returned `satisfied: true` failed 2 of
   2 times with "Terminal term_... is not running a recognized agent."; the
   same `worker-start` with the same task ID succeeded a few seconds later.
+- 2026-10-30, Orca 1.4.244: the task ID was taken from `task-create --json`
+  with `jq '.. | .taskId? // .id? // empty' | head -1`, which returned the
+  request ID (a UUID, the outermost `id`) instead of the task ID at
+  `.result.task.id`; `worker-start` with it exited 1, `| tail -5` hid the
+  error and the exit code, the screen header showed the model, the start was
+  reported, and the task stayed `ready` until `orca-wait.sh` timed out. Now
+  `orca-task-create.sh` reads the ID from `.result.task.id` only,
+  `orca-worker-start.sh` exits 5 for an ID not listed in the Run and 6 for
+  an ok receipt without `.result.dispatchId`, and start commands are never
+  piped into `tail`/`head`.
 - On Orca 1.4.209, a background `check --wait --types
   "worker_done,escalation,question"` repeatedly returned when only a
   `heartbeat` had arrived; the type filter does not reliably exclude

@@ -236,6 +236,13 @@ for c in \
   '. scripts/orca-mailbox.sh exec check' \
   "bash -c 'sh scripts/orca-mailbox.sh exec send'" \
   'cd x && sh scripts/orca-mailbox.sh exec check | jq .' \
+  'sh scripts/orca-task-create.sh --run r --title t --spec s' \
+  'sh "$ROOT/scripts/orca-task-create.sh" --run r --title t --spec s' \
+  '"${CLAUDE_PLUGIN_ROOT}/scripts/orca-task-create.sh" --run r --title t --spec s' \
+  "sh 'scripts/orca-task-create.sh' '--run' r --title t --spec s" \
+  'id=$(sh scripts/orca-task-create.sh --run r --title t --spec s)' \
+  "bash -c 'sh scripts/orca-task-create.sh --run r --title t --spec s'" \
+  'cd x && sh scripts/orca-task-create.sh --run r --title t --spec s | head -1' \
   'sh scripts/orca-wait.sh --run r --terminal term_m' \
   'sh scripts/orca-wait.sh --terminal=term_m --run r' \
   'sh "$ROOT/scripts/orca-worker-start.sh" --run r --task t --from term_m --terminal t --worktree w' \
@@ -247,6 +254,12 @@ check "child sh -n of the mailbox script" allow "$(run 'sh -n scripts/orca-mailb
 check "child cat of the mailbox script" allow "$(run 'cat scripts/orca-mailbox.sh')"
 check "child grep in the mailbox script" allow "$(run 'grep -n exec scripts/orca-mailbox.sh')"
 check "child mailbox test" allow "$(run 'sh tests/orca-mailbox.test.sh')"
+has "child task-create: reason" "$(reason "$(run 'sh scripts/orca-task-create.sh --run r --title t --spec s')")" "master-only"
+check "child sh -n of the task-create script" allow "$(run 'sh -n scripts/orca-task-create.sh')"
+check "child cat of the task-create script" allow "$(run 'cat scripts/orca-task-create.sh')"
+check "child grep in the task-create script" allow "$(run 'grep -n exit scripts/orca-task-create.sh')"
+check "child task-create test" allow "$(run 'sh tests/orca-task-create.test.sh')"
+check "master orca-task-create.sh" allow "$(run 'sh scripts/orca-task-create.sh --run r --title t --spec s' "$repo")"
 check "child orca-wait.sh without --terminal" allow "$(run 'sh scripts/orca-wait.sh --run r')"
 check "master mailbox exec send" allow "$(run 'sh scripts/orca-mailbox.sh exec send --to term_x' "$repo")"
 check "master env -u orca orchestration send" allow "$(run 'env -u ORCA_TAB_ID orca orchestration send --from term_m' "$repo")"

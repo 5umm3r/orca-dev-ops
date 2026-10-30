@@ -18,7 +18,15 @@
 #                       call; default 1; "never" for never). Counts need ORCA_STUB_LOG.
 #   ORCA_STUB_START     space-separated outcomes of successive `orchestration worker-start` calls
 #                       (default: ok): ok, race (not a recognized agent, JSON on stdout),
-#                       race-stderr (the same as a plain message on stderr), other (another error).
+#                       race-stderr (the same as a plain message on stderr), other (another error),
+#                       no-dispatch (ok receipt without a dispatchId), empty-dispatch (ok receipt
+#                       with dispatchId ""). The ok receipt is Orca 1.4.244's: .result.dispatchId,
+#                       .result.taskId, .result.state ready.
+#   ORCA_STUB_TASKS     space-separated task IDs `orchestration task-list` reports (default: task_1).
+#   ORCA_STUB_TASK_LIST `orchestration task-list`: ok (default) or fail (ok false, exit 1).
+#   ORCA_STUB_TASK_CREATE  `orchestration task-create`: ok (default; .result.task.id task_stub),
+#                       uuid (a UUID `id` at the top, no .result.task.id), badid (.result.task.id
+#                       "req_123"), empty (.result.task.id ""), notok (ok false, exit 1).
 #   ORCA_STUB_TERMINALS  space-separated terminal sets of successive `terminal list` calls (default:
 #                       none; the last set repeats). A set is a comma-separated list of none (an
 #                       empty list), shell (a plain shell: no agentIdentity, no header), agent
@@ -219,7 +227,9 @@ case "$1 $2" in
   while [ "$n" -gt 0 ] && [ $# -gt 0 ]; do outcome=$1; n=$((n - 1)); shift; done
   msg='Terminal term_stub is not running a recognized agent.'
   case "$outcome" in
-  ok) echo '{"ok":true,"result":{"worker":{"terminal":"term_stub","status":"started"}}}' ;;
+  ok) echo '{"ok":true,"result":{"dispatchId":"ctx_stub","taskId":"task_stub","state":"ready"}}' ;;
+  no-dispatch) echo '{"ok":true,"result":{"taskId":"task_stub","state":"ready"}}' ;;
+  empty-dispatch) echo '{"ok":true,"result":{"dispatchId":"","taskId":"task_stub","state":"ready"}}' ;;
   race) jq -n --arg m "$msg" '{ok: false, error: {code: "invalid_argument", message: $m}}'; exit 1 ;;
   race-stderr) echo "Error: $msg" >&2; exit 1 ;;
   other) echo '{"ok":false,"error":{"code":"not_found","message":"Task task_stub not found."}}'; exit 1 ;;
@@ -234,6 +244,28 @@ case "$1 $2" in
   case "${ORCA_STUB_RUN_CREATE:-ok}" in
   ok) jq -n --arg o "$obj" '{ok: true, result: {run: {id: "run_created", objective: $o}}}' ;;
   fenced) echo '{"ok":false,"error":{"code":"consumer_fenced","message":"This terminal is attested as term_own and cannot act as term_1."}}'; exit 1 ;;
+  esac
+  ;;
+"orchestration task-list")
+  if [ "${ORCA_STUB_TASK_LIST:-ok}" = fail ]; then
+    echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'
+    exit 1
+  fi
+  jq -n --arg ids "${ORCA_STUB_TASKS-task_1}" '[$ids | split(" ")[] | select(. != "") | {id: ., status: "ready"}]
+    | {ok: true, result: {tasks: ., count: length}}'
+  ;;
+"orchestration task-create")
+  if [ "${ORCA_STUB_VERB_FAIL:-}" = task-create ]; then
+    echo '{"ok":false,"error":{"code":"stub_failure","message":"task-create failed"}}'
+    echo "orca stub: task-create failed" >&2
+    exit 3
+  fi
+  case "${ORCA_STUB_TASK_CREATE:-ok}" in
+  ok) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"task":{"id":"task_stub","status":"ready"}}}' ;;
+  uuid) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"verb":"task-create"}}' ;;
+  badid) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"task":{"id":"req_123","status":"ready"}}}' ;;
+  empty) echo '{"ok":true,"result":{"task":{"id":"","status":"ready"}}}' ;;
+  notok) echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'; exit 1 ;;
   esac
   ;;
 "orchestration "*)

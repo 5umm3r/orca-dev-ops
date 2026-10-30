@@ -19,7 +19,8 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
 | `scripts/orca-terminal-create.sh` | 子のエージェントターミナルを作成し、`terminal create` のハンドル待ちタイムアウトでは再作成せずに待ち、重複したエージェントターミナルを検出する |
-| `scripts/orca-worker-start.sh` | エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動し、起動直後の競合では一度だけ再試行する |
+| `scripts/orca-task-create.sh` | メールボックスのターミナルとしてタスクを作成し、`.result.task.id` から読んだタスク ID だけを出力する。それ以外のレシートはエラーにする |
+| `scripts/orca-worker-start.sh` | タスク ID が Run に存在することを確認し、エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動する。起動直後の競合では一度だけ再試行し、ディスパッチ ID のない起動はエラーにする |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
 | `scripts/orca-mailbox.sh` | コーディネーター用のメールボックス。Run を持つ素のシェルペイン（ペインタイトル `orca-mailbox`）を見つけるか、コーディネーターのペインから分割して作成し（タブと一緒に閉じる）、Orca がコーディネーターのプロンプトへ通知文を打ち込まないようにする。オーケストレーションの操作はそのターミナルとして実行する |
 | `scripts/orca-wait.sh` | コーディネーター用の待機。対応が必要なメッセージで起き、heartbeat と status だけのバッチは確認応答して status を保持する |

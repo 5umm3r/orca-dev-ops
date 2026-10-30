@@ -77,7 +77,7 @@ skip_prefix='i = 1
     p = $i; i++
     while (i <= NF && $i ~ /^-/) {
       if ($i == "--") { i++; break }
-      if ((p == "sudo" && $i ~ /^-[ugpCDhrtTUR]$/) || (p == "env" && $i ~ /^-[uCSP]$/) || (p == "exec" && $i == "-a") || (p == "time" && $i ~ /^-[of]$/)) i++
+      if ((p == "sudo" && $i ~ /^-[ugpCDhrtTUR]$/) || (p == "env" && $i ~ /^(-[uCSP]|--(unset|chdir|split-string))$/) || (p == "exec" && $i == "-a") || (p == "time" && $i ~ /^-[of]$/)) i++
       i++
     }
   }
@@ -152,6 +152,23 @@ Bash)
     esac
   done)
   [ -n "$bad" ] && cdeny "A worker uses only orca orchestration ask, send, check, reply, dispatch-show, worker-show, run-current, task-list, inbox, and request-show; orca orchestration $bad belongs to the master session."
+  # Acting as another terminal: without the Orca attestation variables, Orca lets a call act as
+  # any terminal named by --from or --terminal. The coordinator does that for its mailbox
+  # terminal (scripts/orca-mailbox.sh, the --terminal of orca-wait.sh, the --from of
+  # orca-worker-start.sh, orca_unattested); a worker talks only as its own terminal.
+  mailbox="A worker talks to the coordinator only as its own terminal; the coordinator's mailbox terminal and calls that act as another terminal belong to the master session. Use orca orchestration ask / send / check from this terminal with the Orca environment unchanged."
+  printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/'\"])orca-mailbox\.sh['\"]?[[:space:]]+['\"]?(ensure|exec)(['\"[:space:];&|)]|\$)" \
+    && cdeny "Blocked orca-mailbox.sh. $mailbox"
+  printf '%s' "$cmd" | grep -Eq "(orca-wait\.sh['\"]?([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?--terminal|orca-worker-start\.sh['\"]?([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?--from)([=[:space:]'\"]|\$)" \
+    && cdeny "Blocked orca-wait.sh --terminal / orca-worker-start.sh --from. $mailbox"
+  cmd_has 'orca_unattested' && cdeny "Blocked orca_unattested. $mailbox"
+  attest='ORCA_(TERMINAL_HANDLE|PANE_KEY|AGENT_PANE|AGENT_LAUNCH(_TOKEN)?|TAB_ID)'
+  # The attestation variables removed (env -u/--unset, unset, env -i) or reassigned (VAR=...,
+  # export VAR=..., env VAR=...) in a command line that calls orca orchestration.
+  if printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/])orca[[:space:]]+orchestration([[:space:]]|\$)" \
+    && printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]'\"])$attest=|(-u[[:space:]]*|--unset[=[:space:]]+)['\"]?$attest([^A-Za-z0-9_]|\$)|(^|[;&|(\`[:space:]])unset([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?$attest([^A-Za-z0-9_]|\$)|(^|[;&|(\`[:space:]/])env([[:space:]]+(-u[[:space:]]*[^;&|[:space:]]+|--unset[=[:space:]][^;&|[:space:]]+|-[^;&|[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^;&|[:space:]]*))*[[:space:]]+(-[A-Za-z]*i[A-Za-z]*|--ignore-environment|-)([[:space:];&|)]|\$)"; then
+    cdeny "Blocked orca orchestration with the Orca attestation variables removed or reassigned ($attest, env -i). $mailbox"
+  fi
 
   # Destructive and external operations. String matching is best effort, not a sandbox:
   # it catches the usual spellings of these commands, not every way to run them.

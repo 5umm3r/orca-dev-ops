@@ -206,13 +206,25 @@ non-documentation edit.
 | `monitor.wakeOnStatus` | boolean | `false` | Whether `scripts/orca-wait.sh` also wakes on `status` messages |
 | `monitor.timeoutMs` | integer > 0 | `590000` | Total time `scripts/orca-wait.sh` waits before it gives up |
 
-`scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]`
+`scripts/orca-wait.sh --run <run_id> [--terminal <handle>] [--timeout-ms <n>] [--wake-on-status] [--out <path>]`
 is the coordinator's wait. It runs `orca orchestration check --wait` and wakes
 only on actionable mail. It passes no `--types`, so the wait covers every
-message type: Orca writes "You have N orchestration message(s)..." and then
-Enter into an idle coordinator terminal for any unread type that no live
-`check --wait` covers, and a typed wait would leave the other types to that
-injection (read from Orca 1.4.216's bundled code). `--wake-on-status` and
+message type: Orca writes "You have N (new) orchestration message(s)..." into
+the terminal that owns the Run inbox when its agent status is idle and no
+untyped `check --wait` is live, and a typed wait would leave the other types
+to that injection. Orca sends Enter 500 ms later without checking whether the
+user is typing, so the text can land in a draft and submit it; a waiter that
+registers within the 500 ms (the gap between two waits of this script) skips
+the Enter but leaves the text in the prompt (read from Orca 1.4.243's bundled
+code; there is no setting to turn it off). The coordinator therefore owns its
+Run from a mailbox terminal that runs no agent and so gets no injection
+(`scripts/orca-mailbox.sh ensure`), and passes its handle as `--terminal`:
+every check then runs as that terminal, without the Orca attestation
+variables (`ORCA_TERMINAL_HANDLE`, `ORCA_PANE_KEY`, `ORCA_AGENT_PANE`,
+`ORCA_AGENT_LAUNCH`, `ORCA_AGENT_LAUNCH_TOKEN`, `ORCA_TAB_ID`). Removing them
+lets any terminal act as another, an Orca property; children are kept off it
+by the role guard and the AGENTS.md rules. Closing the mailbox terminal
+fences its Run. `--wake-on-status` and
 `monitor.wakeOnStatus` only change which batches wake the caller. With
 `--out`, it also writes the printed object to `<path>` atomically (an earlier
 file there is removed at startup), for callers whose captured stdout is not

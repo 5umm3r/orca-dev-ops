@@ -35,6 +35,30 @@ result "other error: no retry" "1 1 0" "$(ORCA_STUB_START='other ok' start)"
 result "other error: receipt on stdout" '"not_found"' "$(jq '.error.code' "$tmp/out")"
 result "race, then other error" "4 2 0" "$(ORCA_STUB_START='race other' start)"
 
+# --from: worker-start acts as the given coordinator terminal, without the attestation variables.
+export ORCA_STUB_ENV_LOG="$tmp/env" ORCA_TERMINAL_HANDLE=term_own ORCA_PANE_KEY=pane \
+  ORCA_AGENT_PANE=1 ORCA_AGENT_LAUNCH=1 ORCA_AGENT_LAUNCH_TOKEN=tok ORCA_TAB_ID=tab
+attested="ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID"
+# env_of <prefix>: the attestation variables seen by each call starting with <prefix>, space-joined.
+env_of() {
+  grep -n -- "^$1" "$ORCA_STUB_LOG" | cut -d: -f1 | while read -r n; do sed -n "${n}p" "$ORCA_STUB_ENV_LOG"; done \
+    | tr '\n' ' ' | sed 's/ $//'
+}
+: > "$ORCA_STUB_ENV_LOG"
+result "--from: start ok" "0 1 0" "$(start --from term_mail)"
+result "--from: passed to worker-start" 1 "$(grep -c -- '^orchestration worker-start --from term_mail --run run_1 --task task_1 --terminal term_stub --worktree path:/w --json' "$ORCA_STUB_LOG")"
+result "--from: worker-start unattested" - "$(env_of 'orchestration worker-start')"
+result "--from: terminal read stays attested" "$attested" "$(env_of 'terminal read')"
+: > "$ORCA_STUB_ENV_LOG"
+result "--from: race once, then ok" "0 2 0" "$(ORCA_STUB_START='race ok' start --from term_mail)"
+result "--from: retry also as the terminal" 2 "$(grep -c -- '^orchestration worker-start --from term_mail ' "$ORCA_STUB_LOG")"
+result "--from: retry unattested" "- -" "$(env_of 'orchestration worker-start')"
+: > "$ORCA_STUB_ENV_LOG"
+result "without --from: start ok" "0 1 0" "$(start)"
+result "without --from: no --from" 0 "$(grep -c -- '--from' "$ORCA_STUB_LOG")"
+result "without --from: worker-start attested" "$attested" "$(env_of 'orchestration worker-start')"
+unset ORCA_STUB_ENV_LOG ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID
+
 # usage [<arg>...]: exit code of the script run with exactly <arg>...
 usage() { sh "$script" "$@" >/dev/null 2>&1; echo "$?"; }
 result "no arguments" 64 "$(usage)"
@@ -43,5 +67,6 @@ result "unknown option" 64 "$(usage --run r --task t --terminal x --worktree w -
 result "missing option value" 64 "$(usage --run r --task t --terminal x --worktree)"
 result "non-numeric --retry-delay" 64 "$(usage --run r --task t --terminal x --worktree w --retry-delay soon)"
 result "empty --header-timeout" 64 "$(usage --run r --task t --terminal x --worktree w --header-timeout '')"
+result "empty --from" 64 "$(usage --run r --task t --terminal x --worktree w --from '')"
 
 exit "$fail"

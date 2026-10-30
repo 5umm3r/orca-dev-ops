@@ -196,14 +196,24 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 | `monitor.wakeOnStatus` | 真偽値 | `false` | `scripts/orca-wait.sh` が `status` メッセージでも起きるかどうか |
 | `monitor.timeoutMs` | 0 より大きい整数 | `590000` | `scripts/orca-wait.sh` が待機を打ち切るまでの合計時間 |
 
-`scripts/orca-wait.sh --run <run_id> [--timeout-ms <n>] [--wake-on-status] [--out <path>]` は
+`scripts/orca-wait.sh --run <run_id> [--terminal <handle>] [--timeout-ms <n>] [--wake-on-status] [--out <path>]` は
 コーディネーター用の待機コマンド。`orca orchestration check --wait` を実行し、
 対応が必要なメッセージが来たときだけ起きる。`--types` は渡さず、すべての種類の
-メッセージを待機の対象にする。Orca は、生きている `check --wait` が対象にしていない
-未読メッセージの種類があると、アイドル状態のコーディネーターのターミナルへ
-"You have N orchestration message(s)..." と Enter を書き込むため、種類を絞った待機では
-残りの種類がこの注入に回る（Orca 1.4.216 の同梱コードから読み取った挙動）。
-`--wake-on-status` と `monitor.wakeOnStatus` が変えるのは、どのバッチで呼び出し元が
+メッセージを待機の対象にする。Orca は、Run の受信箱を持つターミナルのエージェントが
+アイドル状態で、種類を絞らない `check --wait` が生きていないと、そのターミナルへ
+"You have N (new) orchestration message(s)..." を書き込むため、種類を絞った待機では
+残りの種類がこの注入に回る。Orca は 500 ms 後に Enter を送り、ユーザーが入力中かどうかは
+確認しないので、書きかけの入力に文字列が混ざって送信されることがある。その 500 ms の間に
+待機が登録されると（このスクリプトの待機と待機の合間）Enter は送られないが、文字列は
+プロンプトに残る（Orca 1.4.243 の同梱コードから読み取った挙動。止める設定はない）。
+そこでコーディネーターは、エージェントを動かさず注入を受けないメールボックス用ターミナル
+（`scripts/orca-mailbox.sh ensure`）に Run を持たせ、そのハンドルを `--terminal` に渡す。
+するとすべての check がそのターミナルとして、Orca の証明用の環境変数
+（`ORCA_TERMINAL_HANDLE`、`ORCA_PANE_KEY`、`ORCA_AGENT_PANE`、`ORCA_AGENT_LAUNCH`、
+`ORCA_AGENT_LAUNCH_TOKEN`、`ORCA_TAB_ID`）を外して実行される。これらを外すと
+どのターミナルでも別のターミナルとして振る舞える。これは Orca の性質なので、子はロール
+ガードと AGENTS.md のルールでこの使い方から遠ざける。メールボックス用ターミナルを閉じると
+その Run は fenced になり使えなくなる。`--wake-on-status` と `monitor.wakeOnStatus` が変えるのは、どのバッチで呼び出し元が
 起きるかだけ。`--out` を指定すると、出力するオブジェクトを
 `<path>` にもアトミックに書き込む（起動時に既存のファイルは削除する）。取得した標準出力が
 純粋な JSON にならない呼び出し元向け。

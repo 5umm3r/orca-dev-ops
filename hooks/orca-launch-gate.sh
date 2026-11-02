@@ -10,9 +10,7 @@
 #     same --command <value> after any word of the command whose basename is
 #     orca-terminal-create.sh (run directly, by a shell with options, by `.`/`source`, or by
 #     another wrapper such as perl or gtimeout), or
-#   orca orchestration worker-start ... --agent ...   without --terminal, also as
-#     `exec worker-start ...` after any word whose basename is orca-mailbox.sh (run the same
-#     ways as orca-terminal-create.sh).
+#   orca orchestration worker-start ... --agent ...   without --terminal.
 # Wrappers such as sudo or env are skipped together with their options (env -u/--unset VAR,
 # VAR=value assignments), and the command string
 # of `sh`/`bash`/`dash`/`zsh -c` is checked the same way, recursively.
@@ -121,15 +119,13 @@ shell_string='nested = ""
   }'
 # After skip_prefix: nested (see shell_string); or s, the index of the first word that may hold
 # --command, for `orca terminal create` or any word whose basename is orca-terminal-create.sh;
-# or ws, the index of the first option of `orca orchestration worker-start` or of
-# `<any word whose basename is orca-mailbox.sh> exec worker-start`.
+# or ws, the index of the first option of `orca orchestration worker-start`.
 launch_start="$shell_string"'; s = 0; ws = 0
   if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
   if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") ws = i + 3
   if (!s && !ws && nested == "") for (j = 1; j <= NF; j++) {
     b = $j; sub(/.*\//, "", b)
     if (b == "orca-terminal-create.sh") { s = j + 1; break }
-    if (b == "orca-mailbox.sh" && $(j + 1) == "exec" && $(j + 2) == "worker-start") { ws = j + 3; break }
   }'
 
 us=$(printf '\037')

@@ -3,7 +3,8 @@
 # Prints the effective per-repository settings (.orca-dev-ops.json merged over the built-in
 # defaults, see docs/config.md) of the repository at <path> (default: the current directory) as
 # JSON on stdout. The file is always read from the main checkout, also when <path> is a linked
-# worktree. stderr names the source file and, for an invalid file, why it is ignored.
+# worktree. stderr names the source file and, for an invalid file, why it is ignored; for a
+# valid file, a settings warning (the monitor deprecation notice) when there is one.
 # Exit codes: 0 valid or missing (defaults); 3 invalid (ignored, defaults printed); 64 usage
 # error; 65 not a git repository. Requires git and jq.
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -21,7 +22,8 @@ case "$ORCA_CONFIG_STATE" in
 missing)
   printf 'orca-config: source: built-in defaults (%s does not exist)\n' "${ORCA_CONFIG_PATH:-$ORCA_CONFIG_FILE}" >&2 ;;
 valid)
-  printf 'orca-config: source: %s\n' "$ORCA_CONFIG_PATH" >&2 ;;
+  printf 'orca-config: source: %s\n' "$ORCA_CONFIG_PATH" >&2
+  [ -z "$ORCA_CONFIG_ERROR" ] || printf 'orca-config: warning: %s\n' "$ORCA_CONFIG_ERROR" >&2 ;;
 *)
   printf 'orca-config: source: built-in defaults (%s is invalid)\n' "$ORCA_CONFIG_PATH" >&2
   printf 'orca-config: error: %s\n' "$ORCA_CONFIG_ERROR" >&2

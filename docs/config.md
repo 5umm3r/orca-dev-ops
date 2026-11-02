@@ -31,9 +31,8 @@ too and then writes the file into the main checkout. `launch.agent`,
 
 ```json
 {
-  "launch":  { "mode": "ask" },
-  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
-  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+  "launch": { "mode": "ask" },
+  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -87,10 +86,9 @@ line per section.
 
 ```json
 {
-  "launch":  { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
-               "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
-  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
-  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+  "launch": { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
+              "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
+  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -199,61 +197,25 @@ documentation (`*.md`, `docs/`, `references/`, `.claude/`) is not counted and
 Write stays blocked for other files. `0` blocks every direct
 non-documentation edit.
 
-### `monitor`
+### `monitor` (deprecated, ignored since 1.12.0)
 
-| Key | Type | Default | Behavior |
-| --- | --- | --- | --- |
-| `monitor.wakeOnStatus` | boolean | `false` | Whether `scripts/orca-wait.sh` also wakes on `status` messages |
-| `monitor.timeoutMs` | integer > 0 | `590000` | Total time `scripts/orca-wait.sh` waits before it gives up |
+Versions before 1.12.0 used `monitor.wakeOnStatus` and `monitor.timeoutMs` to
+configure `scripts/orca-wait.sh`, the coordinator's foreground wait. 1.12.0
+removed that script: Orca 1.4.246 wakes the coordinator itself, by typing the
+`check` command into the coordinator's own terminal when a worker reports
+(see "Communication and state" in `skills/orca-dev-ops/SKILL.md`), so there is
+nothing left to configure.
 
-`scripts/orca-wait.sh --run <run_id> [--terminal <handle>] [--timeout-ms <n>] [--wake-on-status] [--out <path>]`
-is the coordinator's wait. It runs `orca orchestration check --wait` and wakes
-only on actionable mail. It passes no `--types`, so the wait covers every
-message type: Orca writes "You have N (new) orchestration message(s)..." into
-the terminal that owns the Run inbox when its agent status is idle and no
-untyped `check --wait` is live, and a typed wait would leave the other types
-to that injection. Orca sends Enter 500 ms later without checking whether the
-user is typing, so the text can land in a draft and submit it; a waiter that
-registers within the 500 ms (the gap between two waits of this script) skips
-the Enter but leaves the text in the prompt (read from Orca 1.4.243's bundled
-code; there is no setting to turn it off). The coordinator therefore owns its
-Run from a mailbox pane that runs no agent and so gets no injection
-(`scripts/orca-mailbox.sh ensure` splits it off the coordinator's pane; pane
-title `orca-mailbox`, it closes with the coordinator's tab), and passes its
-handle as `--terminal`:
-every check then runs as that terminal, without the Orca attestation
-variables (`ORCA_TERMINAL_HANDLE`, `ORCA_PANE_KEY`, `ORCA_AGENT_PANE`,
-`ORCA_AGENT_LAUNCH`, `ORCA_AGENT_LAUNCH_TOKEN`, `ORCA_TAB_ID`). Removing them
-lets any terminal act as another, an Orca property; children are kept off it
-by the role guard and the AGENTS.md rules. Closing the mailbox pane
-fences its Run. `--wake-on-status` and
-`monitor.wakeOnStatus` only change which batches wake the caller. With
-`--out`, it also writes the printed object to `<path>` atomically (an earlier
-file there is removed at startup), for callers whose captured stdout is not
-pure JSON:
-
-- A Delivery that holds a `worker_done`, `escalation`, `question`, or any
-  other type except `heartbeat` and `status` (and `status` too with
-  `--wake-on-status`) is printed as `{"delivery": ..., "deferred": [...]}`,
-  exit 0. It is not acknowledged: the coordinator handles every message in it
-  and acknowledges it with `--ack <deliveryId>`.
-- A Delivery of only heartbeats and statuses is acknowledged and the wait
-  continues with the remaining time. Its `status` messages are kept in
-  `deferred` and printed when the script ends; they are not delivered again,
-  so the coordinator must read them there.
-- When the time is up or the result is empty, it prints the object with
-  `"delivery": null`, exit 2. An Orca error exits 1 with an `error` field.
-
-The command-line options override the settings; the skill tells the
-coordinator to use `--wake-on-status` for the first wait after a start, so
-the child's first `status` is read right away.
-
-The trade-off of a long `timeoutMs`: the wait wakes less often, which saves
-coordinator turns, but deferred statuses and a child that stopped without
-reporting are noticed only when the wait ends. The default, 590000 ms, stays
-just under the 10-minute limit of a single tool call, so the same value also
-works for a wait run in the foreground. A short `timeoutMs` notices problems
-sooner at the cost of more wake-ups.
+The section is still accepted so that existing files stay valid, and its
+values are still checked as before (`wakeOnStatus` true or false, `timeoutMs`
+an integer > 0). It is left out of the effective settings, `/orca-init` no
+longer writes it, `--settings=add` keeps it as it is, and `--settings=reset`
+removes it. A valid file that has it gets the settings warning
+`monitor is ignored since 1.12.0; remove it from <path>.` in the coordinator's
+session context, in every deny of the launch gate and the role guard, from
+`scripts/orca-config.sh show` (`orca-config: warning: ...` on stderr, exit 0),
+and from `/orca-init` (`settings: warning: ...`). Remove the section; a later
+major version will reject it as an unknown key.
 
 ## Validation and fallback
 
@@ -261,7 +223,8 @@ The whole file is checked on every read. It is invalid when:
 
 - it is not valid JSON, is empty, holds more than one JSON value, or its top
   level is not an object;
-- it has a key not listed above (at any level);
+- it has a key not listed above (at any level; the deprecated `monitor`
+  section is still listed and accepted);
 - a value has the wrong type or is out of range;
 - `launch.mode` is `"semi-auto"` or `"auto"` without `launch.agent`,
   `launch.model`, and `launch.effort`;
@@ -302,6 +265,7 @@ sh scripts/orca-config.sh show [<path>]
 Run it from the plugin (in Claude, `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-config.sh" show`).
 It prints the effective settings (the file merged over the defaults) as JSON
 on stdout; stderr names the source file and, when the file is invalid, the
-reason. Exit codes: 0 valid or missing, 3 invalid (the defaults are printed),
+reason, or, for a valid file, the settings warning (the `monitor` deprecation
+notice). Exit codes: 0 valid or missing, 3 invalid (the defaults are printed),
 64 usage error, 65 not a git repository. The coordinator runs it once per
 session, before the first launch.

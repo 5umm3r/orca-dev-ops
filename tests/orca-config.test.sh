@@ -7,7 +7,7 @@ repo="$tmp/dev/my repo"; mkdir -p "$repo"; new_repo "$repo"
 child="$tmp/work trees/task one"; mkdir -p "$tmp/work trees"
 git -C "$repo" worktree add -q -b task-one "$child" || exit 1
 cfg="$repo/.orca-dev-ops.json"
-defaults='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}'
+defaults='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
 
 # show [<path>]: runs `orca-config.sh show`, stdout in $out (compact JSON), stderr in $err, exit code in $rc.
 show() {
@@ -15,6 +15,7 @@ show() {
   out=$(jq -c . "$tmp/out" 2>/dev/null) err=$(cat "$tmp/err")
 }
 has() { result "$1" yes "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
+lacks() { result "$1" no "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
 
 # --- missing file: defaults, exit 0
 show "$repo"
@@ -30,14 +31,32 @@ result "empty object: exit 0" 0 "$rc"
 result "empty object: defaults" "$defaults" "$out"
 has "valid: stderr names the source" "$err" "source: $cfg"
 
-printf '{"limits":{"maxWorktrees":5},"monitor":{"wakeOnStatus":true}}\n' > "$cfg"; show "$repo"
+printf '{"limits":{"maxWorktrees":5}}\n' > "$cfg"; show "$repo"
 result "partial: exit 0" 0 "$rc"
-result "partial: merged" '{"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":true,"timeoutMs":590000}}' "$out"
+result "partial: merged" '{"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
+lacks "partial: no warning" "$err" "warning"
 
-full='{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"},"limits":{"maxWorktrees":1,"smallChangeFiles":0,"smallChangeLines":0},"monitor":{"wakeOnStatus":true,"timeoutMs":60000}}'
+full='{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"},"limits":{"maxWorktrees":1,"smallChangeFiles":0,"smallChangeLines":0}}'
 printf '%s\n' "$full" > "$cfg"; show "$repo"
 result "full: exit 0" 0 "$rc"
 result "full: every key taken" "$full" "$out"
+
+# --- deprecated monitor (ignored since 1.12.0): still valid, left out, with a warning
+printf '{"limits":{"maxWorktrees":5},"monitor":{"wakeOnStatus":true,"timeoutMs":60000}}\n' > "$cfg"; show "$repo"
+result "monitor: still valid, exit 0" 0 "$rc"
+result "monitor: left out of the effective settings" '{"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
+has "monitor: deprecation warning on stderr" "$err" "orca-config: warning: monitor is ignored since 1.12.0; remove it from $cfg."
+has "monitor: source still named" "$err" "source: $cfg"
+printf '{"monitor":{}}\n' > "$cfg"; show "$repo"
+result "empty monitor: exit 0" 0 "$rc"
+has "empty monitor: deprecation warning" "$err" "monitor is ignored since 1.12.0"
+# The loader's channel: ORCA_CONFIG_ERROR carries the notice while the state stays valid.
+printf '{"monitor":{"wakeOnStatus":false}}\n' > "$cfg"
+result "monitor: loader state and notice" "valid|monitor is ignored since 1.12.0; remove it from $cfg." \
+  "$( . "$root/hooks/orca-lib.sh"; orca_config_load "$repo"; printf '%s|%s' "$ORCA_CONFIG_STATE" "$ORCA_CONFIG_ERROR")"
+printf '{"limits":{"maxWorktrees":2}}\n' > "$cfg"
+result "no monitor: no notice" "valid|" \
+  "$( . "$root/hooks/orca-lib.sh"; orca_config_load "$repo"; printf '%s|%s' "$ORCA_CONFIG_STATE" "$ORCA_CONFIG_ERROR")"
 printf '{"launch":{"agent":"claude","model":"claude-opus-5-5","effort":"high"}}\n' > "$cfg"; show "$repo"
 result "ask with recommendations: exit 0" 0 "$rc"
 result "ask with recommendations: mode stays ask" ask "$(printf '%s' "$out" | jq -r .launch.mode)"

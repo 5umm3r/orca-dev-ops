@@ -1,6 +1,7 @@
 #!/bin/sh
 # Stub `orca` for the hook tests. It replays the fixture JSON captured from Orca 1.4.206
-# (tests/fixtures/*.json) with the paths of the throwaway test repositories.
+# (tests/fixtures/*.json) with the paths of the throwaway test repositories. The orchestration
+# receipts are the concise views of Orca 1.4.246 (the default, also with --json), unless noted.
 #   ORCA_STUB_FIXTURES  directory holding the fixture JSON files
 #   ORCA_STUB           fail    -> no output, exit 1 (Orca unreachable)
 #                       garbage -> non-JSON output, exit 0
@@ -20,24 +21,23 @@
 #                       (default: ok): ok, race (not a recognized agent, JSON on stdout),
 #                       race-stderr (the same as a plain message on stderr), other (another error),
 #                       no-dispatch (ok receipt without a dispatchId), empty-dispatch (ok receipt
-#                       with dispatchId ""). The ok receipt is Orca 1.4.244's: .result.dispatchId,
-#                       .result.taskId, .result.state ready.
+#                       with dispatchId ""). The ok receipt is Orca 1.4.246's concise view:
+#                       .result.dispatchId, .result.taskId, .result.runId, .result.state ready,
+#                       .result.terminal, .result.next.
 #   ORCA_STUB_TASKS     space-separated task IDs `orchestration task-list` reports (default: task_1).
 #   ORCA_STUB_TASK_LIST `orchestration task-list`: ok (default) or fail (ok false, exit 1).
-#   ORCA_STUB_TASK_CREATE  `orchestration task-create`: ok (default; .result.task.id task_stub),
-#                       uuid (a UUID `id` at the top, no .result.task.id), badid (.result.task.id
-#                       "req_123"), empty (.result.task.id ""), notok (ok false, exit 1).
+#   ORCA_STUB_TASK_CREATE  `orchestration task-create`: ok (default; the concise view,
+#                       .result.taskId task_stub), legacy (an older Orca's receipt, or --full:
+#                       .result.task.id task_stub), uuid (a UUID `id` at the top, no task ID),
+#                       badid (.result.taskId "req_123"), empty (.result.taskId ""), nested (no
+#                       .result.taskId or .result.task.id, a task ID deeper in the receipt),
+#                       notok (ok false, exit 1).
 #   ORCA_STUB_TERMINALS  space-separated terminal sets of successive `terminal list` calls (default:
 #                       none; the last set repeats). A set is a comma-separated list of none (an
 #                       empty list), shell (a plain shell: no agentIdentity, no header), agent
 #                       (agentIdentity claude, header on `terminal read`), or header (no
-#                       agentIdentity, header on `terminal read`), mailbox (a plain shell titled
-#                       orca-mailbox), mailbox-agent (the same with agentIdentity claude),
-#                       mailbox-closed (the same as mailbox with connected false), or
-#                       mailbox-orphan (the same as mailbox with orphaned true), or mailbox-tab
-#                       (a plain shell whose tab title is orca-mailbox but whose paneTitle is
-#                       not). mailbox rows carry paneTitle orca-mailbox. The Nth item of a
-#                       set has the handle term_N. `terminal read` answers by the latest list call.
+#                       agentIdentity, header on `terminal read`). The Nth item of a set has the
+#                       handle term_N. `terminal read` answers by the latest list call.
 #                       Needs ORCA_STUB_LOG.
 #   ORCA_STUB_TERMINALS_RECREATED  the same kind of list, used from the second `terminal create`
 #                       call on, indexed by the `terminal list` calls since that create.
@@ -45,21 +45,17 @@
 #                       ok; the last repeats): ok (handle term_1), timeout (the runtime_error
 #                       JSON on stdout, exit 1), timeout-stderr (the same on stderr), other
 #                       (another error).
-#   ORCA_STUB_SPLIT     `terminal split`: ok (default; handle term_split) or fail (ok false, exit 1).
-#   ORCA_STUB_PANE_TITLE  `terminal set-pane-title`: ok (default) or fail (ok false, exit 1).
 #   ORCA_STUB_WORKTREE_LIST `worktree list`: ok (default; the git worktrees of the --repo main
 #                       checkout, main first), truncated (the same with truncated: true).
-#   ORCA_STUB_CHECK     space-separated results of successive `orchestration check` calls
-#                       (default: timeout): timeout (empty, timedOut), empty (empty, not timed
-#                       out), block (timeout after sleeping ORCA_STUB_BLOCK_SECONDS, default 3),
-#                       error (ok false, exit 1), or a comma-separated list of message
-#                       types for one Delivery with deliveryId dlv_<call number> (`untyped` is a
-#                       message whose type is null). Each result follows a keepalive line on
-#                       stdout and stderr.
-#   ORCA_STUB_RUN       the Run id `orchestration run-current` reports as bound (default: none, a
-#                       null run).
-#   ORCA_STUB_RUN_CREATE  `orchestration run-create`: ok (default; Run run_created with the given
-#                       --objective) or fenced (the consumer_fenced error, exit 1).
+#   ORCA_STUB_RUN       the Run id `orchestration run-current` reports as bound (default: none).
+#                       The concise receipts are tests/fixtures/run-current-unbound.json (captured
+#                       from Orca 1.4.246) and run-current-bound.json with this id.
+#   ORCA_STUB_RUN_SHAPE `orchestration run-current`: concise (default) or legacy (an older Orca's
+#                       receipt, or --full: .result.run null or {id, objective}).
+#   ORCA_STUB_RUN_CURRENT `orchestration run-current`: ok (default) or fail (ok false, exit 1).
+#   ORCA_STUB_RUN_CREATE  `orchestration run-create`: ok (default; the concise view, .result.runId
+#                       run_created with the given --objective), legacy (.result.run.id
+#                       run_created), or fail (ok false, exit 1).
 #   ORCA_STUB_VERB_FAIL  an orchestration verb without its own fixture (send, reply, task-create,
 #                       ...) that fails: an ok false receipt on stdout, a line on stderr, exit 3.
 #                       Every other such verb answers {"ok": true, "result": {"verb": <verb>}}.
@@ -149,34 +145,12 @@ case "$1 $2" in
       | .result.totalCount = ($paths | length)
       | .result.truncated = ($trunc == "truncated")'
   ;;
-"orchestration check")
-  n=$(calls 'orchestration check')
-  set -- ${ORCA_STUB_CHECK:-timeout}
-  outcome=timeout
-  while [ "$n" -gt 0 ] && [ $# -gt 0 ]; do outcome=$1; n=$((n - 1)); shift; done
-  keepalive='{"_keepalive":true,"_heartbeat":true,"elapsedMs":15000,"deadlineMs":590000}'
-  echo "$keepalive"; echo "$keepalive" >&2
-  [ "$outcome" = block ] && { sleep "${ORCA_STUB_BLOCK_SECONDS:-3}"; outcome=timeout; }
-  case "$outcome" in
-  error) echo '{"ok":false,"error":{"code":"consumer_fenced","message":"Run run_stub is bound to another consumer."}}'; exit 1 ;;
-  timeout | empty) jq --argjson t "$([ "$outcome" = timeout ] && echo true || echo false)" \
-      '.result.deliveryId = null | .result.messages = [] | .result.count = 0 | .result.timedOut = $t' "$fx/check-delivery.json" ;;
-  *) jq --arg types "$outcome" --arg d "dlv_$(calls 'orchestration check')" '
-      .result.messages[0] as $m
-      | .result.deliveryId = $d
-      | .result.messages = [$types | split(",") | to_entries[]
-          | $m + {id: "msg_\($d)_\(.key)", type: (if .value == "untyped" then null else .value end), subject: "\(.value) \(.key)"}]
-      | .result.count = (.result.messages | length)' "$fx/check-delivery.json" ;;
-  esac
-  ;;
 "terminal list")
   state=$(list_state)
   jq -n --arg s "$state" '[$s | split(",") | to_entries[] | select(.value != "none") | {
       handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w",
-      title: (if .value | startswith("mailbox") then "orca-mailbox" else "agent" end),
-      paneTitle: (if .value == "mailbox-tab" then "other" elif .value | startswith("mailbox") then "orca-mailbox" else null end),
-      preview: "", connected: (.value != "mailbox-closed"), orphaned: (.value == "mailbox-orphan"),
-      agentIdentity: (if .value == "agent" or .value == "mailbox-agent" then "claude" else null end)}]
+      title: "agent", paneTitle: null, preview: "", connected: true, orphaned: false,
+      agentIdentity: (if .value == "agent" then "claude" else null end)}]
     | {ok: true, result: {terminals: ., totalCount: length, truncated: false}}'
   ;;
 "terminal create")
@@ -186,21 +160,6 @@ case "$1 $2" in
   timeout-stderr) echo '{"code":"runtime_error","message":"Timed out waiting for terminal handle after creation"}' >&2; exit 1 ;;
   other) echo '{"ok":false,"error":{"code":"not_found","message":"Worktree not found."}}'; exit 1 ;;
   esac
-  ;;
-"terminal split")
-  case "${ORCA_STUB_SPLIT:-ok}" in
-  ok) echo '{"ok":true,"result":{"split":{"handle":"term_split","tabId":"tab","paneRuntimeId":1,"leafId":"leaf"}}}' ;;
-  fail) echo '{"ok":false,"error":{"code":"not_found","message":"Terminal not found."}}'; exit 1 ;;
-  esac
-  ;;
-"terminal set-pane-title")
-  case "${ORCA_STUB_PANE_TITLE:-ok}" in
-  ok) echo '{"ok":true,"result":{"paneTitle":"set"}}' ;;
-  fail) echo '{"ok":false,"error":{"code":"runtime_error","message":"set-pane-title failed"}}'; exit 1 ;;
-  esac
-  ;;
-"terminal close")
-  echo '{"ok":true,"result":{"closed":true}}'
   ;;
 "terminal read")
   if [ -n "${ORCA_STUB_TERMINALS:-}" ]; then
@@ -227,7 +186,7 @@ case "$1 $2" in
   while [ "$n" -gt 0 ] && [ $# -gt 0 ]; do outcome=$1; n=$((n - 1)); shift; done
   msg='Terminal term_stub is not running a recognized agent.'
   case "$outcome" in
-  ok) echo '{"ok":true,"result":{"dispatchId":"ctx_stub","taskId":"task_stub","state":"ready"}}' ;;
+  ok) echo '{"ok":true,"result":{"dispatchId":"ctx_stub","taskId":"task_stub","runId":"run_stub","state":"ready","mode":"terminal","terminal":"term_stub","workspace":"/w","next":"Orca wakes you when workers report; end your turn when you'"'"'re done."}}' ;;
   no-dispatch) echo '{"ok":true,"result":{"taskId":"task_stub","state":"ready"}}' ;;
   empty-dispatch) echo '{"ok":true,"result":{"dispatchId":"","taskId":"task_stub","state":"ready"}}' ;;
   race) jq -n --arg m "$msg" '{ok: false, error: {code: "invalid_argument", message: $m}}'; exit 1 ;;
@@ -236,14 +195,25 @@ case "$1 $2" in
   esac
   ;;
 "orchestration run-current")
-  jq -n --arg r "${ORCA_STUB_RUN:-}" '{ok: true, result: {run: (if $r == "" then null else {id: $r, objective: "stub"} end)}}'
+  if [ "${ORCA_STUB_RUN_CURRENT:-ok}" = fail ]; then
+    echo '{"ok":false,"error":{"code":"runtime_error","message":"run-current failed"}}'
+    exit 1
+  fi
+  if [ "${ORCA_STUB_RUN_SHAPE:-concise}" = legacy ]; then
+    jq -n --arg r "${ORCA_STUB_RUN:-}" '{ok: true, result: {run: (if $r == "" then null else {id: $r, objective: "stub"} end)}}'
+  elif [ -n "${ORCA_STUB_RUN:-}" ]; then
+    jq --arg r "$ORCA_STUB_RUN" '.result.runId = $r' "$fx/run-current-bound.json"
+  else
+    cat "$fx/run-current-unbound.json"
+  fi
   ;;
 "orchestration run-create")
   obj=
   while [ $# -gt 0 ]; do [ "$1" = --objective ] && obj=$2; shift; done
   case "${ORCA_STUB_RUN_CREATE:-ok}" in
-  ok) jq -n --arg o "$obj" '{ok: true, result: {run: {id: "run_created", objective: $o}}}' ;;
-  fenced) echo '{"ok":false,"error":{"code":"consumer_fenced","message":"This terminal is attested as term_own and cannot act as term_1."}}'; exit 1 ;;
+  ok) jq -nc --arg o "$obj" '{ok: true, result: {runId: "run_created", objective: $o}}' ;;
+  legacy) jq -nc --arg o "$obj" '{ok: true, result: {run: {id: "run_created", objective: $o}}}' ;;
+  fail) echo '{"ok":false,"error":{"code":"runtime_error","message":"run-create failed"}}'; exit 1 ;;
   esac
   ;;
 "orchestration task-list")
@@ -251,8 +221,9 @@ case "$1 $2" in
     echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'
     exit 1
   fi
-  jq -n --arg ids "${ORCA_STUB_TASKS-task_1}" '[$ids | split(" ")[] | select(. != "") | {id: ., status: "ready"}]
-    | {ok: true, result: {tasks: ., count: length}}'
+  jq -n --arg ids "${ORCA_STUB_TASKS-task_1}" '[$ids | split(" ")[] | select(. != "")
+      | {id: ., status: "ready", title: "stub", dispatchId: null, assignee: null}]
+    | {ok: true, result: {tasks: ., runId: "run_1"}}'
   ;;
 "orchestration task-create")
   if [ "${ORCA_STUB_VERB_FAIL:-}" = task-create ]; then
@@ -261,10 +232,12 @@ case "$1 $2" in
     exit 3
   fi
   case "${ORCA_STUB_TASK_CREATE:-ok}" in
-  ok) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"task":{"id":"task_stub","status":"ready"}}}' ;;
+  ok) echo '{"ok":true,"result":{"taskId":"task_stub","status":"ready"}}' ;;
+  legacy) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"task":{"id":"task_stub","status":"ready"}}}' ;;
   uuid) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"verb":"task-create"}}' ;;
-  badid) echo '{"id":"7d1c9b52-1f0e-4c8a-9d2e-3a5b6c7d8e9f","ok":true,"result":{"task":{"id":"req_123","status":"ready"}}}' ;;
-  empty) echo '{"ok":true,"result":{"task":{"id":"","status":"ready"}}}' ;;
+  badid) echo '{"ok":true,"result":{"taskId":"req_123","status":"ready"}}' ;;
+  empty) echo '{"ok":true,"result":{"taskId":"","status":"ready"}}' ;;
+  nested) echo '{"ok":true,"result":{"status":"ready","parent":{"taskId":"task_parent","task":{"id":"task_parent"}}}}' ;;
   notok) echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'; exit 1 ;;
   esac
   ;;

@@ -20,11 +20,10 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
 | `scripts/orca-terminal-create.sh` | Creates the child's agent terminal, waits through the `terminal create` handle timeout instead of recreating, and reports duplicate agent terminals |
-| `scripts/orca-task-create.sh` | Creates a task as the mailbox terminal and prints the task ID only, read from `.result.task.id`; any other receipt is an error |
+| `scripts/orca-run.sh` | `ensure`: binds the coordinator's own Orca terminal to a Run (reuses the bound one or creates one) and prints its ID; Orca then wakes that terminal when a worker reports |
+| `scripts/orca-task-create.sh` | Creates a task as the calling coordinator terminal and prints the task ID only, read from `.result.taskId` (or `.result.task.id` on older Orca); any other receipt is an error |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the task ID is confirmed in the Run and the agent header is on screen, retrying once on the start-up race; a start without a dispatch ID is an error |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
-| `scripts/orca-mailbox.sh` | Coordinator mailbox: finds or splits off (from the coordinator's pane, pane title `orca-mailbox`, closes with the tab) a plain shell pane that owns the Run, so Orca types no message notice into the coordinator's prompt, and runs orchestration verbs as that terminal |
-| `scripts/orca-wait.sh` | Coordinator wait: wakes on actionable mail, acknowledges heartbeat- and status-only batches and keeps the statuses |
 | `scripts/orca-usage.sh` | Sums a child worktree's token usage from the local Claude and Codex transcripts |
 | `docs/config.md` | Reference for the repository settings file |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
@@ -100,8 +99,10 @@ choose the launch mode (`ask`: questions before every launch, the default;
 `semi-auto`: a fixed agent, model, and effort without questions, plus one
 `Model` question before an optional escalate tier; `auto`: the same without
 any question, the coordinator choosing the tier), the worktree and
-small-change limits, and the coordinator's wait. It is read from the main
-checkout only, and an invalid file is ignored with a warning. Without it,
+small-change limits. It is read from the main
+checkout only, and an invalid file is ignored with a warning. The `monitor`
+section of earlier versions is ignored since 1.12.0 (still accepted, with a
+deprecation warning); remove it. Without it,
 behavior is unchanged. Initialization creates it with every default; the
 written values stay as they are when a later plugin version changes a
 default. See [docs/config.md](docs/config.md);
@@ -111,10 +112,14 @@ default. See [docs/config.md](docs/config.md);
 
 - The `orca` CLI is on the `PATH`.
 - `jq` is available.
+- A Claude coordinator runs with the Claude Code setting
+  `promptSuggestionEnabled: false`: Orca reads the prompt-suggestion ghost
+  text as a draft, which holds the coordinator's wake for up to 10 minutes.
 
 What is Orca: Orca is the multi-agent app that manages worktrees and agent
 terminals; this plugin drives its `orca` CLI. The skill was verified with
-Orca 1.4.206 and 1.4.209 (see "Known constraints" in `skills/orca-dev-ops/SKILL.md`).
+Orca 1.4.206 and 1.4.209, and the coordinator's wake on Orca 1.4.246 (see
+"Known constraints" in `skills/orca-dev-ops/SKILL.md`).
 
 ## Upgrading
 
@@ -136,6 +141,10 @@ Codex hooks are kept.
 - Children are started as dispatched workers through
   `orca orchestration worker-start --terminal`. Fixes for review findings are
   handed over as a new Dispatch.
+- The coordinator's own Orca terminal owns the Run (`scripts/orca-run.sh
+  ensure`). After starting a child it ends its turn; when a worker reports,
+  Orca types the `check` command into the coordinator's terminal and submits
+  it, and the coordinator handles every message and ends its turn again.
 - Child Claude sessions are launched with `templates/child-settings.json`
   (`--settings`), so only the coordinator sends push notifications. Orca app
   notifications are not affected.

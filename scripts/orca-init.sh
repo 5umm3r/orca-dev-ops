@@ -48,7 +48,10 @@
 #                                   plugin default changes do not update it),
 #                                   without needing --apply; --no-settings skips
 #                                   this
-#   present, valid              -> reported as valid, then, without --settings=:
+#   present, valid              -> reported as valid (with the settings warning, such
+#                                   as the monitor deprecation notice, when there is
+#                                   one; monitor is ignored since 1.12.0 and never
+#                                   written), then, without --settings=:
 #                                   "missing key" lines for every default the file
 #                                   lacks and every applicable suggested opt-in key
 #                                   (launch.escalate with mode semi-auto or auto
@@ -226,8 +229,10 @@ case "$ORCA_CONFIG_STATE" in
       fi
     elif [ "$SETTINGS_MODE" = add ]; then
       settings_add
+      [ -z "$ORCA_CONFIG_ERROR" ] || echo "settings: warning: $ORCA_CONFIG_ERROR"
     else
       echo "settings: $ORCA_CONFIG_PATH is valid"
+      [ -z "$ORCA_CONFIG_ERROR" ] || echo "settings: warning: $ORCA_CONFIG_ERROR"
       settings_report
     fi
     ;;

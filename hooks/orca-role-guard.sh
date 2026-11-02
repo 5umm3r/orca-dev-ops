@@ -113,6 +113,15 @@ own=$(orca_top "$(orca_abspath "$cwd" /)")
 case "$tool" in
 Bash)
   cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' | join_lines)
+  # Every role: an orca orchestration call runs as the calling terminal, which Orca attests from
+  # these variables; the Run, its wake, and the messages belong to that terminal. Nothing
+  # legitimate removes (env -u/--unset, unset, env -i) or reassigns (VAR=..., export VAR=...,
+  # env VAR=...) them in a command line that calls orca orchestration.
+  attest='ORCA_(TERMINAL_HANDLE|PANE_KEY|AGENT_PANE|AGENT_LAUNCH(_TOKEN)?|TAB_ID)'
+  if printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/])orca[[:space:]]+orchestration([[:space:]]|\$)" \
+    && printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]'\"])$attest=|(-u[[:space:]]*|--unset[=[:space:]]+)['\"]?$attest([^A-Za-z0-9_]|\$)|(^|[;&|(\`[:space:]])unset([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?$attest([^A-Za-z0-9_]|\$)|(^|[;&|(\`[:space:]/])env([[:space:]]+(-u[[:space:]]*[^;&|[:space:]]+|--unset[=[:space:]][^;&|[:space:]]+|-[^;&|[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^;&|[:space:]]*))*[[:space:]]+(-[A-Za-z]*i[A-Za-z]*|--ignore-environment|-)([[:space:];&|)]|\$)"; then
+    cdeny "Blocked orca orchestration with the Orca attestation variables removed or reassigned ($attest, env -i). Every orca orchestration call runs as the calling terminal; run it from that terminal with the Orca environment unchanged."
+  fi
   if [ "$role" = master ]; then
     git_sub 'worktree[[:space:]]+(add|remove|prune)' && deny "Use the orca CLI (orca worktree create / orca worktree rm) instead of raw git worktree commands."
     # orca worktree create: at most limits.maxWorktrees task worktrees; fails closed when Orca
@@ -152,25 +161,8 @@ Bash)
     esac
   done)
   [ -n "$bad" ] && cdeny "A worker uses only orca orchestration ask, send, check, reply, dispatch-show, worker-show, run-current, task-list, inbox, and request-show; orca orchestration $bad belongs to the master session."
-  # Acting as another terminal: without the Orca attestation variables, Orca lets a call act as
-  # any terminal named by --from or --terminal. The coordinator does that for its mailbox
-  # terminal (scripts/orca-mailbox.sh, the --terminal of orca-wait.sh, the --from of
-  # orca-worker-start.sh, orca_unattested); a worker talks only as its own terminal.
-  mailbox="A worker talks to the coordinator only as its own terminal; the coordinator's mailbox terminal and calls that act as another terminal belong to the master session. Use orca orchestration ask / send / check from this terminal with the Orca environment unchanged."
-  printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/'\"])orca-mailbox\.sh['\"]?[[:space:]]+['\"]?(ensure|exec)(['\"[:space:];&|)]|\$)" \
-    && cdeny "Blocked orca-mailbox.sh. $mailbox"
   printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/'\"])orca-task-create\.sh['\"]?[[:space:]]+['\"]?-" \
-    && cdeny "Blocked orca-task-create.sh (task-create is master-only). $mailbox"
-  printf '%s' "$cmd" | grep -Eq "(orca-wait\.sh['\"]?([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?--terminal|orca-worker-start\.sh['\"]?([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?--from)([=[:space:]'\"]|\$)" \
-    && cdeny "Blocked orca-wait.sh --terminal / orca-worker-start.sh --from. $mailbox"
-  cmd_has 'orca_unattested' && cdeny "Blocked orca_unattested. $mailbox"
-  attest='ORCA_(TERMINAL_HANDLE|PANE_KEY|AGENT_PANE|AGENT_LAUNCH(_TOKEN)?|TAB_ID)'
-  # The attestation variables removed (env -u/--unset, unset, env -i) or reassigned (VAR=...,
-  # export VAR=..., env VAR=...) in a command line that calls orca orchestration.
-  if printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/])orca[[:space:]]+orchestration([[:space:]]|\$)" \
-    && printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]'\"])$attest=|(-u[[:space:]]*|--unset[=[:space:]]+)['\"]?$attest([^A-Za-z0-9_]|\$)|(^|[;&|(\`[:space:]])unset([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+['\"]?$attest([^A-Za-z0-9_]|\$)|(^|[;&|(\`[:space:]/])env([[:space:]]+(-u[[:space:]]*[^;&|[:space:]]+|--unset[=[:space:]][^;&|[:space:]]+|-[^;&|[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^;&|[:space:]]*))*[[:space:]]+(-[A-Za-z]*i[A-Za-z]*|--ignore-environment|-)([[:space:];&|)]|\$)"; then
-    cdeny "Blocked orca orchestration with the Orca attestation variables removed or reassigned ($attest, env -i). $mailbox"
-  fi
+    && cdeny "Blocked orca-task-create.sh (task-create is master-only). A worker talks to the coordinator with orca orchestration ask / send / check from this terminal."
 
   # Destructive and external operations. String matching is best effort, not a sandbox:
   # it catches the usual spellings of these commands, not every way to run them.

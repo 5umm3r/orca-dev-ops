@@ -30,9 +30,8 @@
 
 ```json
 {
-  "launch":  { "mode": "ask" },
-  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
-  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+  "launch": { "mode": "ask" },
+  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -84,10 +83,9 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 
 ```json
 {
-  "launch":  { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
-               "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
-  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
-  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+  "launch": { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
+              "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
+  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -189,56 +187,24 @@ Orca が応答しない場合や、途中で打ち切られた一覧を返した
 Write は引き続きブロックする。`0` にするとドキュメント以外の直接編集をすべて
 ブロックする。
 
-### `monitor`
+### `monitor`（非推奨。1.12.0 から無視される）
 
-| キー | 型 | デフォルト | 動作 |
-| --- | --- | --- | --- |
-| `monitor.wakeOnStatus` | 真偽値 | `false` | `scripts/orca-wait.sh` が `status` メッセージでも起きるかどうか |
-| `monitor.timeoutMs` | 0 より大きい整数 | `590000` | `scripts/orca-wait.sh` が待機を打ち切るまでの合計時間 |
+1.12.0 より前のバージョンでは、`monitor.wakeOnStatus` と `monitor.timeoutMs` で
+コーディネーターのフォアグラウンド待機（`scripts/orca-wait.sh`）を設定していた。
+1.12.0 でこのスクリプトは削除された。Orca 1.4.246 では、ワーカーが報告すると Orca が
+コーディネーター自身のターミナルへ `check` コマンドを入力して起こす
+（`skills/orca-dev-ops/SKILL.md` の「Communication and state」を参照）ため、
+設定する項目は残っていない。
 
-`scripts/orca-wait.sh --run <run_id> [--terminal <handle>] [--timeout-ms <n>] [--wake-on-status] [--out <path>]` は
-コーディネーター用の待機コマンド。`orca orchestration check --wait` を実行し、
-対応が必要なメッセージが来たときだけ起きる。`--types` は渡さず、すべての種類の
-メッセージを待機の対象にする。Orca は、Run の受信箱を持つターミナルのエージェントが
-アイドル状態で、種類を絞らない `check --wait` が生きていないと、そのターミナルへ
-"You have N (new) orchestration message(s)..." を書き込むため、種類を絞った待機では
-残りの種類がこの注入に回る。Orca は 500 ms 後に Enter を送り、ユーザーが入力中かどうかは
-確認しないので、書きかけの入力に文字列が混ざって送信されることがある。その 500 ms の間に
-待機が登録されると（このスクリプトの待機と待機の合間）Enter は送られないが、文字列は
-プロンプトに残る（Orca 1.4.243 の同梱コードから読み取った挙動。止める設定はない）。
-そこでコーディネーターは、エージェントを動かさず注入を受けないメールボックス用ペイン
-（`scripts/orca-mailbox.sh ensure` がコーディネーターのペインから分割して作る。ペインタイトルは
-`orca-mailbox` で、コーディネーターのタブと一緒に閉じる）に Run を持たせ、そのハンドルを `--terminal` に渡す。
-するとすべての check がそのターミナルとして、Orca の証明用の環境変数
-（`ORCA_TERMINAL_HANDLE`、`ORCA_PANE_KEY`、`ORCA_AGENT_PANE`、`ORCA_AGENT_LAUNCH`、
-`ORCA_AGENT_LAUNCH_TOKEN`、`ORCA_TAB_ID`）を外して実行される。これらを外すと
-どのターミナルでも別のターミナルとして振る舞える。これは Orca の性質なので、子はロール
-ガードと AGENTS.md のルールでこの使い方から遠ざける。メールボックス用ペインを閉じると
-その Run は fenced になり使えなくなる。`--wake-on-status` と `monitor.wakeOnStatus` が変えるのは、どのバッチで呼び出し元が
-起きるかだけ。`--out` を指定すると、出力するオブジェクトを
-`<path>` にもアトミックに書き込む（起動時に既存のファイルは削除する）。取得した標準出力が
-純粋な JSON にならない呼び出し元向け。
-
-- `worker_done`・`escalation`・`question`、または `heartbeat` と `status` 以外の
-  種類（`--wake-on-status` 指定時は `status` も）を含む Delivery は
-  `{"delivery": ..., "deferred": [...]}` として出力し、終了コード 0 で終わる。
-  この Delivery は確認応答（ack）しない。コーディネーターが中のメッセージを
-  すべて処理してから `--ack <deliveryId>` で確認応答する。
-- heartbeat と status だけの Delivery は確認応答し、残り時間で待機を続ける。
-  その `status` メッセージは `deferred` に保持し、スクリプトの終了時に出力する。
-  これらは二度と配信されないため、コーディネーターは必ずそこで読む。
-- 時間切れや空の結果では `"delivery": null` のオブジェクトを出力し、終了コード 2。
-  Orca のエラーでは `error` フィールド付きで終了コード 1。
-
-コマンドラインのオプションは設定より優先される。スキルは、子の起動直後の最初の
-待機では `--wake-on-status` を使うようコーディネーターに指示しており、子の最初の
-`status` をすぐに読める。
-
-`timeoutMs` を長くすることのトレードオフ: 待機から起きる回数が減り、コーディネーターの
-ターンを節約できる一方で、保留された status や、報告せずに止まった子に気づくのは
-待機が終わってからになる。デフォルトの 590000 ms は 1 回のツール呼び出しの上限である
-10 分をわずかに下回る値で、フォアグラウンドで待機する場合にもそのまま使える。
-`timeoutMs` を短くすると、起きる回数と引き換えに問題に早く気づける。
+既存のファイルが有効なままになるよう、このセクションは引き続き受け付け、値も従来どおり
+検証する（`wakeOnStatus` は true か false、`timeoutMs` は 0 より大きい整数）。
+有効な設定には含めず、`/orca-init` はもう書き込まない。`--settings=add` はそのまま残し、
+`--settings=reset` は削除する。このセクションを持つ有効なファイルには、設定の警告
+`monitor is ignored since 1.12.0; remove it from <path>.` を、コーディネーターの
+セッション開始時のコンテキスト、起動ゲートとロールガードのすべての拒否メッセージ、
+`scripts/orca-config.sh show`（stderr に `orca-config: warning: ...`、終了コード 0）、
+`/orca-init`（`settings: warning: ...`）で出す。このセクションは削除する。
+将来のメジャーバージョンでは未知のキーとして拒否する。
 
 ## 検証とフォールバック
 
@@ -246,7 +212,7 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 
 - JSON として正しくない、空である、複数の JSON 値を含む、またはトップレベルが
   オブジェクトでない。
-- 上に挙げていないキーがある（どの階層でも）。
+- 上に挙げていないキーがある（どの階層でも。非推奨の `monitor` セクションは上に挙げており、受け付ける）。
 - 値の型が違う、または範囲外である。
 - `launch.mode` が `"semi-auto"` または `"auto"` なのに `launch.agent`・`launch.model`・
   `launch.effort` が揃っていない。
@@ -284,7 +250,7 @@ sh scripts/orca-config.sh show [<path>]
 
 プラグインから実行する（Claude では `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-config.sh" show`）。
 有効な設定（ファイルをデフォルト値に重ねたもの）を JSON として標準出力に出し、
-標準エラー出力に読み込み元のファイルと、不正な場合はその理由を出す。終了コードは、
+標準エラー出力に読み込み元のファイルと、不正な場合はその理由を、有効なファイルでは設定の警告（`monitor` の非推奨通知）を出す。終了コードは、
 0 が正常またはファイルなし、3 が不正（デフォルト値を出力）、64 が使い方の誤り、
 65 が git リポジトリでない場合。コーディネーターはセッションごとに一度、最初の起動の
 前に実行する。

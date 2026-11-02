@@ -272,9 +272,8 @@ result "settings absent: exit 0" 0 "$rc"
 result "settings absent: created message" 1 "$(count "^created: $r/\\.orca-dev-ops\\.json$")"
 cat > "$tmp/settings-want" <<'JSON'
 {
-  "launch":  { "mode": "ask" },
-  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 },
-  "monitor": { "wakeOnStatus": false, "timeoutMs": 590000 }
+  "launch": { "mode": "ask" },
+  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 JSON
 result "settings absent: created with every default" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-want" && echo match || echo diff)"
@@ -339,7 +338,7 @@ run "$r"
 result "settings report: exit 0" 0 "$rc"
 result "settings report: valid line" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
 result "settings report: missing default key" 1 "$(count '^settings: missing key limits\.smallChangeLines (default 20)$')"
-result "settings report: every missing default" 4 "$(count '^settings: missing key .* (default ')"
+result "settings report: every missing default" 2 "$(count '^settings: missing key .* (default ')"
 result "settings report: applicable suggestion" 1 "$(count '^settings: missing key launch\.escalate (suggested {"model":"claude-opus-5-5","effort":"high"})$')"
 result "settings report: no available line with every opt-in set" 0 "$(count '^settings: available key')"
 result "settings report: reset changes a value" 1 "$(count '^settings: reset would change limits\.maxWorktrees (2 -> 3)$')"
@@ -351,9 +350,10 @@ result "settings report: rules step still runs" 1 "$(count '^created: \.claude/C
 
 run "$r" --settings=add
 result "settings add: exit 0" 0 "$rc"
-result "settings add: reported" 1 "$(count "^updated: $r/\\.orca-dev-ops\\.json (added: limits\\.smallChangeFiles, limits\\.smallChangeLines, monitor\\.wakeOnStatus, monitor\\.timeoutMs, launch\\.escalate)$")"
+result "settings add: reported" 1 "$(count "^updated: $r/\\.orca-dev-ops\\.json (added: limits\\.smallChangeFiles, limits\\.smallChangeLines, launch\\.escalate)$")"
 result "settings add: existing values kept" '2|auto|claude|claude-sonnet-5-5|medium' "$(jq -r '[.limits.maxWorktrees, .launch.mode, .launch.agent, .launch.model, .launch.effort] | map(tostring) | join("|")' "$cfg")"
-result "settings add: missing keys added" '2|20|false|590000|claude-opus-5-5|high' "$(jq -r '[.limits.smallChangeFiles, .limits.smallChangeLines, .monitor.wakeOnStatus, .monitor.timeoutMs, .launch.escalate.model, .launch.escalate.effort] | map(tostring) | join("|")' "$cfg")"
+result "settings add: missing keys added" '2|20|claude-opus-5-5|high' "$(jq -r '[.limits.smallChangeFiles, .limits.smallChangeLines, .launch.escalate.model, .launch.escalate.effort] | map(tostring) | join("|")' "$cfg")"
+result "settings add: no monitor written" false "$(jq 'has("monitor")' "$cfg")"
 result "settings add: result is valid" '' "$(cfg_check "$cfg")"
 result "settings add: no backup" no "$([ -e "$cfg.bak" ] && echo yes || echo no)"
 cp "$cfg" "$tmp/settings-before"
@@ -364,6 +364,27 @@ run "$r"
 result "settings complete: no missing key" 0 "$(count '^settings: missing key')"
 result "settings complete: no rerun hint" 0 "$(count '^settings: rerun')"
 result "settings complete: escalate reported as reset loss" 1 "$(count '^settings: reset would change launch\.escalate\.model ("claude-opus-5-5" -> removed)$')"
+
+# Deprecated monitor (ignored since 1.12.0): still valid, warned about, kept by add, removed by reset.
+r="$tmp/settings-monitor"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '%s\n' '{"limits":{"maxWorktrees":2},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}' > "$cfg"
+cp "$cfg" "$tmp/settings-before"
+run "$r"
+result "settings monitor: exit 0" 0 "$rc"
+result "settings monitor: reported valid" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
+result "settings monitor: deprecation warning" 1 "$(count "^settings: warning: monitor is ignored since 1\\.12\\.0; remove it from $r/\\.orca-dev-ops\\.json\\.$")"
+result "settings monitor: not a missing key" 0 "$(count '^settings: missing key monitor')"
+result "settings monitor: reset would remove it" 1 "$(count '^settings: reset would change monitor\.timeoutMs (590000 -> removed)$')"
+result "settings monitor: file unchanged" match "$(cmp -s "$cfg" "$tmp/settings-before" && echo match || echo diff)"
+run "$r" --settings=add
+result "settings monitor add: warning" 1 "$(count '^settings: warning: monitor is ignored since 1\.12\.0')"
+result "settings monitor add: monitor kept" '{"wakeOnStatus":false,"timeoutMs":590000}' "$(jq -c '.monitor' "$cfg")"
+result "settings monitor add: result is valid" '' "$(cfg_check "$cfg")"
+run "$r" --settings=reset
+result "settings monitor reset: monitor removed" false "$(jq 'has("monitor")' "$cfg")"
+result "settings monitor reset: same as a created file" match "$(cmp -s "$cfg" "$tmp/settings-want" && echo match || echo diff)"
+run "$r"
+result "settings monitor reset: no warning afterwards" 0 "$(count '^settings: warning:')"
 
 r="$tmp/settings-ask"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
 printf '%s\n' '{"launch":{"mode":"ask","agent":"claude"}}' > "$cfg"

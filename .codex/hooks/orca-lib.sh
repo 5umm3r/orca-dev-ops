@@ -29,17 +29,6 @@ orca_cli() {
   fi
 }
 
-# orca_unattested <args>: the orca CLI, unbounded, without the variables that attest which
-# terminal is calling (ORCA_TERMINAL_HANDLE, ORCA_PANE_KEY, ORCA_AGENT_PANE, ORCA_AGENT_LAUNCH,
-# ORCA_AGENT_LAUNCH_TOKEN, ORCA_TAB_ID). An attested call that names another terminal with
-# --from or --terminal fails with consumer_fenced; without them Orca lets the call act as that
-# terminal. The coordinator uses this for its mailbox terminal (scripts/orca-mailbox.sh); the
-# role guard keeps children off it.
-orca_unattested() (
-  unset ORCA_TERMINAL_HANDLE ORCA_PANE_KEY ORCA_AGENT_PANE ORCA_AGENT_LAUNCH ORCA_AGENT_LAUNCH_TOKEN ORCA_TAB_ID
-  exec orca "$@"
-)
-
 # orca_phys <absolute path>: the path with symlinks resolved in its nearest existing directory
 # (the path itself may not exist yet).
 orca_phys() {
@@ -142,8 +131,13 @@ orca_worktrees() {
 # semi-auto or auto without agent, model, and effort, or launch.escalate without mode
 # semi-auto or auto) is ignored as a whole: the defaults apply and
 # ORCA_CONFIG_ERROR says why.
+# Deprecated: the monitor section (wakeOnStatus, timeoutMs) configured scripts/orca-wait.sh,
+# which 1.12.0 removed (Orca wakes the coordinator itself). It is still accepted and checked as
+# before, so existing files stay valid, but it is left out of the effective settings and a valid
+# file that has it gets a deprecation notice in ORCA_CONFIG_ERROR. A later major version
+# removes it.
 ORCA_CONFIG_FILE=.orca-dev-ops.json
-ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20},"monitor":{"wakeOnStatus":false,"timeoutMs":590000}}'
+ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
 # The opt-in keys (those without a default), for orca-init.sh: a jq filter over the effective
 # settings (the defaults merged with a valid file) that emits one {path} per key, with a
 # suggested "value" only when adding that value to the file keeps it valid. The hooks do not use it.
@@ -194,7 +188,9 @@ orca_main_checkout() { orca_worktrees "$1" | sed -n 1p; }
 #   ORCA_CONFIG        the effective JSON (defaults merged with the file), compact
 #   ORCA_CONFIG_STATE  missing, valid, or invalid
 #   ORCA_CONFIG_PATH   the file it looked for (empty when the main checkout is unknown)
-#   ORCA_CONFIG_ERROR  why an invalid file was ignored (empty otherwise)
+#   ORCA_CONFIG_ERROR  the settings warning: why an invalid file was ignored, or, for a valid
+#                      file, the deprecation notice for monitor (empty otherwise; the state
+#                      stays valid)
 # Always returns 0; safe under set -e.
 orca_config_load() {
   ORCA_CONFIG=$ORCA_CONFIG_DEFAULTS ORCA_CONFIG_STATE=missing ORCA_CONFIG_PATH= ORCA_CONFIG_ERROR=
@@ -208,8 +204,14 @@ orca_config_load() {
     _e=$(jq -rs "$ORCA_CONFIG_CHECK" "$ORCA_CONFIG_PATH" 2>/dev/null) || _e='it is not valid JSON'
   fi
   if [ -z "$_e" ]; then
-    _c=$(jq -cs --argjson d "$ORCA_CONFIG_DEFAULTS" '$d * .[0]' "$ORCA_CONFIG_PATH" 2>/dev/null) || _c=
-    if [ -n "$_c" ]; then ORCA_CONFIG=$_c ORCA_CONFIG_STATE=valid; return 0; fi
+    _c=$(jq -cs --argjson d "$ORCA_CONFIG_DEFAULTS" '$d * .[0] | del(.monitor)' "$ORCA_CONFIG_PATH" 2>/dev/null) || _c=
+    if [ -n "$_c" ]; then
+      ORCA_CONFIG=$_c ORCA_CONFIG_STATE=valid
+      if jq -es '.[0] | has("monitor")' "$ORCA_CONFIG_PATH" >/dev/null 2>&1; then
+        ORCA_CONFIG_ERROR="monitor is ignored since 1.12.0; remove it from $ORCA_CONFIG_PATH."
+      fi
+      return 0
+    fi
     _e='it could not be read'
   fi
   ORCA_CONFIG_STATE=invalid

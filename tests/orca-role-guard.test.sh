@@ -54,6 +54,7 @@ check() {
 # reason <json>: the deny reason the guard gives.
 reason() { printf '%s' "$1" | sh "$guard" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty'; }
 has() { result "$1" yes "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
+lacks() { result "$1" no "$(printf '%s' "$2" | grep -qF -- "$3" && echo yes || echo no)"; }
 write() { jq -n --arg cwd "${2:-$repo}" --arg f "$1" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$f,content:"x"}}'; }
 # edit <path> <new_string line count> [replace_all]
 edit() { jq -n --arg cwd "$repo" --arg f "$1" --arg s "$(lines "$2")" --argjson all "${3:-false}" '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:$f,old_string:"line 1",new_string:$s,replace_all:$all}}'; }
@@ -195,7 +196,8 @@ check "child /usr/local/bin/orca orchestration reset" deny "$(run '/usr/local/bi
 for s in worker-start run-create task-create; do
   check "child env -u orca orchestration $s" deny "$(run "env -u ORCA_TERMINAL_HANDLE orca orchestration $s --json")"
 done
-# Acting as another terminal: the attestation variables removed or reassigned.
+# The attestation variables removed or reassigned on an orca orchestration call: denied for
+# every role, since every call runs as the calling terminal.
 for c in \
   'env -u ORCA_TERMINAL_HANDLE -u ORCA_PANE_KEY -u ORCA_AGENT_PANE -u ORCA_AGENT_LAUNCH -u ORCA_AGENT_LAUNCH_TOKEN -u ORCA_TAB_ID orca orchestration send --from term_m --to term_x' \
   'env -u ORCA_TAB_ID orca orchestration check --terminal term_m --json' \
@@ -214,56 +216,40 @@ for c in \
   "sh -c 'env -u ORCA_TAB_ID orca orchestration check --terminal term_m'" \
   "$(printf 'env -u ORCA_TERMINAL_HANDLE \\\n  orca orchestration send --from term_m')"; do
   check "child impersonation: $c" deny "$(run "$c")"
+  check "master impersonation: $c" deny "$(run "$c" "$repo")"
 done
-has "child impersonation: reason" "$(reason "$(run 'env -u ORCA_TAB_ID orca orchestration send')")" "only as its own terminal"
+has "child impersonation: reason" "$(reason "$(run 'env -u ORCA_TAB_ID orca orchestration send')")" "runs as the calling terminal"
+has "master impersonation: reason" "$(reason "$(run 'env -u ORCA_TAB_ID orca orchestration send' "$repo")")" "Orca environment unchanged"
+lacks "impersonation: no mailbox in the reason" "$(reason "$(run 'env -u ORCA_TAB_ID orca orchestration send' "$repo")")" "mailbox"
 # Not impersonation: other variables, or no orchestration call.
 check "child env -u other variable orca orchestration send" allow "$(run 'env -u FOO orca orchestration send --json')"
 check "child ORCA_OTHER= orca orchestration send" allow "$(run 'ORCA_TERMINAL_HANDLE_X=1 orca orchestration send --json')"
 check "child env -i without orchestration" allow "$(run 'env -i PATH=/usr/bin sh tests/x.test.sh')"
 check "child echo of the variable" allow "$(run 'echo "$ORCA_TERMINAL_HANDLE"; orca orchestration check --json')"
 check "child env -u without orchestration" allow "$(run 'env -u ORCA_TAB_ID sh tests/x.test.sh')"
-# The coordinator's mailbox terminal and the wrappers that act as it.
+check "master env -u without orchestration" allow "$(run 'env -u ORCA_TAB_ID sh tests/x.test.sh' "$repo")"
+check "master orca orchestration send" allow "$(run 'orca orchestration send --to term_x --json' "$repo")"
+# task-create is master-only, also through the wrapper script.
 for c in \
-  'sh scripts/orca-mailbox.sh ensure' \
-  'sh scripts/orca-mailbox.sh exec check --json' \
-  'sh scripts/orca-mailbox.sh exec send --to term_x' \
-  'sh scripts/orca-mailbox.sh exec ask --question q' \
-  'sh scripts/orca-mailbox.sh exec reply --id m' \
-  'sh scripts/orca-mailbox.sh exec worker-start --agent claude' \
-  '"$ROOT/scripts/orca-mailbox.sh" exec send' \
-  "sh \"\$ROOT/scripts/orca-mailbox.sh\" 'exec' send" \
-  '/opt/plugin/scripts/orca-mailbox.sh ensure --objective x' \
-  '. scripts/orca-mailbox.sh exec check' \
-  "bash -c 'sh scripts/orca-mailbox.sh exec send'" \
-  'cd x && sh scripts/orca-mailbox.sh exec check | jq .' \
   'sh scripts/orca-task-create.sh --run r --title t --spec s' \
   'sh "$ROOT/scripts/orca-task-create.sh" --run r --title t --spec s' \
   '"${CLAUDE_PLUGIN_ROOT}/scripts/orca-task-create.sh" --run r --title t --spec s' \
   "sh 'scripts/orca-task-create.sh' '--run' r --title t --spec s" \
   'id=$(sh scripts/orca-task-create.sh --run r --title t --spec s)' \
   "bash -c 'sh scripts/orca-task-create.sh --run r --title t --spec s'" \
-  'cd x && sh scripts/orca-task-create.sh --run r --title t --spec s | head -1' \
-  'sh scripts/orca-wait.sh --run r --terminal term_m' \
-  'sh scripts/orca-wait.sh --terminal=term_m --run r' \
-  'sh "$ROOT/scripts/orca-worker-start.sh" --run r --task t --from term_m --terminal t --worktree w' \
-  '. hooks/orca-lib.sh; orca_unattested orchestration send --from term_m'; do
-  check "child mailbox: $c" deny "$(run "$c")"
+  'cd x && sh scripts/orca-task-create.sh --run r --title t --spec s | head -1'; do
+  check "child task-create wrapper: $c" deny "$(run "$c")"
 done
-has "child mailbox: reason" "$(reason "$(run 'sh scripts/orca-mailbox.sh exec send')")" "only as its own terminal"
-check "child sh -n of the mailbox script" allow "$(run 'sh -n scripts/orca-mailbox.sh')"
-check "child cat of the mailbox script" allow "$(run 'cat scripts/orca-mailbox.sh')"
-check "child grep in the mailbox script" allow "$(run 'grep -n exec scripts/orca-mailbox.sh')"
-check "child mailbox test" allow "$(run 'sh tests/orca-mailbox.test.sh')"
 has "child task-create: reason" "$(reason "$(run 'sh scripts/orca-task-create.sh --run r --title t --spec s')")" "master-only"
+lacks "child task-create: no mailbox in the reason" "$(reason "$(run 'sh scripts/orca-task-create.sh --run r --title t --spec s')")" "mailbox"
 check "child sh -n of the task-create script" allow "$(run 'sh -n scripts/orca-task-create.sh')"
 check "child cat of the task-create script" allow "$(run 'cat scripts/orca-task-create.sh')"
 check "child grep in the task-create script" allow "$(run 'grep -n exit scripts/orca-task-create.sh')"
 check "child task-create test" allow "$(run 'sh tests/orca-task-create.test.sh')"
 check "master orca-task-create.sh" allow "$(run 'sh scripts/orca-task-create.sh --run r --title t --spec s' "$repo")"
-check "child orca-wait.sh without --terminal" allow "$(run 'sh scripts/orca-wait.sh --run r')"
-check "master mailbox exec send" allow "$(run 'sh scripts/orca-mailbox.sh exec send --to term_x' "$repo")"
-check "master env -u orca orchestration send" allow "$(run 'env -u ORCA_TAB_ID orca orchestration send --from term_m' "$repo")"
-check "master orca-wait.sh --terminal" allow "$(run 'sh scripts/orca-wait.sh --run r --terminal term_m' "$repo")"
+# The run and worker-start wrappers: no orchestration verb in the command line itself.
+check "master orca-run.sh ensure" allow "$(run 'sh scripts/orca-run.sh ensure' "$repo")"
+check "master orca-worker-start.sh" allow "$(run 'sh scripts/orca-worker-start.sh --run r --task task_1 --terminal t --worktree w' "$repo")"
 for s in create rm remove set; do
   check "child orca worktree $s" deny "$(run "orca worktree $s --worktree name:x")"
 done

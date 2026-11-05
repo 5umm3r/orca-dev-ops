@@ -1,0 +1,1 @@
+{"ok":true,"result":{"messages":[{"id":"msg_1","type":"worker_done","from":"term_child","to":"term_own","subject":"Done","handled":false,"body":"Did it.","payload":{"taskId":"task_a","dispatchId":"ctx_a","outcome":"succeeded"}}]}}

@@ -56,6 +56,13 @@
 #   ORCA_STUB_RUN_CREATE  `orchestration run-create`: ok (default; the concise view, .result.runId
 #                       run_created with the given --objective), legacy (.result.run.id
 #                       run_created), or fail (ok false, exit 1).
+#   ORCA_STUB_PEEK      `orchestration check ... --peek` (a consuming check, without --peek,
+#                       answers as any other verb): empty (default; {"ok":true,"result":
+#                       {"messages":[]}}, captured from Orca 1.4.249), worker_done (one
+#                       unread worker_done for dispatch ctx_a), mixed (status, worker_done,
+#                       question, escalation, status over dispatches ctx_a, ctx_b, ctx_c),
+#                       fail (ok false, exit 1), garbage (non-JSON output, exit 0). Fixtures:
+#                       tests/fixtures/check-peek-*.json, in the concise inbox view.
 #   ORCA_STUB_VERB_FAIL  an orchestration verb without its own fixture (send, reply, task-create,
 #                       ...) that fails: an ok false receipt on stdout, a line on stderr, exit 3.
 #                       Every other such verb answers {"ok": true, "result": {"verb": <verb>}}.
@@ -240,6 +247,25 @@ case "$1 $2" in
   nested) echo '{"ok":true,"result":{"status":"ready","parent":{"taskId":"task_parent","task":{"id":"task_parent"}}}}' ;;
   notok) echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'; exit 1 ;;
   esac
+  ;;
+"orchestration check")
+  case " $* " in
+  *" --peek "*)
+    case "${ORCA_STUB_PEEK:-empty}" in
+    empty) cat "$fx/check-peek-empty.json" ;;
+    worker_done) cat "$fx/check-peek-worker-done.json" ;;
+    mixed) cat "$fx/check-peek-mixed.json" ;;
+    fail) echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'; exit 1 ;;
+    garbage) echo 'orca: mailbox unavailable'; exit 0 ;;
+    esac
+    exit 0 ;;
+  esac
+  if [ "$2" = "${ORCA_STUB_VERB_FAIL:-}" ]; then
+    jq -n --arg v "$2" '{ok: false, error: {code: "stub_failure", message: "\($v) failed"}}'
+    echo "orca stub: $2 failed" >&2
+    exit 3
+  fi
+  jq -n --arg v "$2" '{ok: true, result: {verb: $v}}'
   ;;
 "orchestration "*)
   if [ "$2" = "${ORCA_STUB_VERB_FAIL:-}" ]; then

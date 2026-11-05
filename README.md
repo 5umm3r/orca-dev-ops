@@ -16,6 +16,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-role-context.sh` | SessionStart. Tells the session whether it is the master or a child |
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
 | `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
+| `hooks/orca-coordinator-inbox.sh` | UserPromptSubmit. On each user prompt in the coordinator, peeks at its Run's mailbox (without marking anything read) and names unread orchestration messages, so a held or lost wake is handled in that turn |
 | `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
@@ -145,6 +146,11 @@ Codex hooks are kept.
   ensure`). After starting a child it ends its turn; when a worker reports,
   Orca types the `check` command into the coordinator's terminal and submits
   it, and the coordinator handles every message and ends its turn again.
+  Every message wakes the coordinator, so children send no routine `status`:
+  the rules confirmation and the verification output go in the `worker_done`
+  body, and a Dispatch normally wakes the coordinator once (plus once per
+  `ask`). If a wake is held or lost, the inbox hook names the unread messages
+  on the user's next prompt.
 - Child Claude sessions are launched with `templates/child-settings.json`
   (`--settings`), so only the coordinator sends push notifications. Orca app
   notifications are not affected.

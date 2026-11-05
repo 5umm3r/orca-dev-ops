@@ -30,7 +30,7 @@ master)
 - Launch mode: $launch.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}" ;;
 child)
   ctx="[orca-workflow] This is a child (worker) session in an Orca task worktree. Implement the plan the coordinator sent and leave all changes uncommitted.
-- Talk to the coordinator only through \`orca orchestration\`: \`ask\` for questions, \`send\` for status, and \`send --type worker_done\` once to report.
+- Talk to the coordinator only through \`orca orchestration\`: \`ask\` for questions and \`send --type worker_done\` once to report, with the verification output and the rules confirmation in its body. Send no routine \`status\`: every message wakes the coordinator.
 - Follow the repository's \"Orca worktree rules\"." ;;
 unknown)
   ctx='[orca-workflow] The Orca role of this session (coordinator or worker) could not be determined; edits and mutating commands are blocked until it is (start Orca, or open the session in the right checkout).' ;;

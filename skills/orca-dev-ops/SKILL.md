@@ -56,6 +56,7 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   sandbox, and Claude sessions only — Codex is limited by its own sandbox
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
+- `orca-coordinator-inbox.sh` (UserPromptSubmit, master only) peeks (`orca orchestration check --run <id> --peek`, which marks nothing read) at the Run bound to this terminal on every user prompt except Orca's own wake text; when unread messages exist it adds one line naming their count, types, and the Dispatch IDs of `worker_done`, `question`, and `escalation` messages, so a held or lost wake is handled in that turn. It never blocks a prompt and stays silent on any Orca error.
 - `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, with the script as any word of the command (run directly, through a shell with options, `.`/`source`, or another wrapper), are gated the same way, and so are launches behind `env -u VAR`/`env VAR=...`, and launches inside `sh -c` strings). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch modes `semi-auto` and `auto` it reads no transcript for the default tier and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); with `launch.escalate` set, the `launch.agent` with the escalate model and effort is allowed as well: in `auto` without reading the transcript, in `semi-auto` only after an answered `Model` question since the last successful launch. Anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
 Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
@@ -293,10 +294,11 @@ For Codex, the script works the same way with `--command "codex -a never -s work
   line shows model, approval, and sandbox), or report the value as
   unconfirmed if the screen does not show it — including when the screen
   shows a value that does not change with the requested effort (see "Known
-  constraints"). Have the child's first `status`
-  message confirm it read the repository's Orca worktree rules; for Claude
-  children also confirm the guard is active (e.g. the child runs
-  `git commit --dry-run -m probe` and reports that the guard denied it).
+  constraints"). The child's `worker_done` body confirms it read the
+  repository's Orca worktree rules; for Claude children it also confirms the
+  guard is active (the child runs `git commit --dry-run -m probe` and reports
+  that the guard denied it). Children send no `status` unless asked: every
+  message wakes the coordinator.
 
 Effort mapping (the only part to update when the CLIs change):
 
@@ -385,12 +387,17 @@ workflow's choices and what live tests showed.
 - Orchestration messages first; `orca terminal read/send` for supplementary
   input and recovery. Sending text to a terminal is not acceptance: confirm by
   the child's screen or its next message.
-- A child sometimes sends a heartbeat or repeats an earlier question instead
-  of the first `status`; answer duplicates consistently and ask again for the
-  status if it never arrives (see "Known constraints").
-- The child's `worker_done` body follows the preamble (three sentences); the
-  verification commands and output come in the `status` just before it, and
-  changed paths in `--files-modified`. Review against those, not the summary.
+- Children send no routine `status` (not for progress, rule confirmation, or
+  verification), so a Dispatch normally wakes the coordinator once, on
+  `worker_done`, plus once per `ask`. Ask for a `status` only when you need
+  one mid-task. A child sometimes still sends a heartbeat, a `status`, or
+  repeats an earlier question; answer duplicates consistently (see "Known
+  constraints").
+- The child's `worker_done` body is the preamble's three sentences, then a
+  `Verification:` part with each verification command and its last output
+  lines, then the rules (and, for Claude, guard) confirmation; changed paths
+  come in `--files-modified`. Review against those, not the summary. When the
+  confirmation or verification is missing, ask for it before reviewing.
 - Review fixes and follow-ups reuse the same terminal/worktree through a new
   Task + Dispatch (`orca-task-create.sh` +
   `orca-worker-start.sh --terminal <handle>`); a `--terminal`-bound worker
@@ -414,7 +421,11 @@ workflow's choices and what live tests showed.
      `status`, and review on `worker_done` (see "Review, integration,
      cleanup"). Then end the turn again.
   - A `status` also wakes the coordinator: one short turn per status; read
-    it and end the turn.
+    it and end the turn. Do not tell the user you are waiting for a report
+    that the batch already contains: check `worker_done` first.
+  - A wake that is held or lost is caught on the user's next prompt: the
+    `orca-coordinator-inbox.sh` hook peeks at the Run's mailbox and names
+    any unread messages; handle them in that turn with the `check` it names.
   - A wake is submitted even when its mail was already read; the `check`
     then returns nothing, so end the turn.
   - A draft in the coordinator's composer holds the wake until it is sent or
@@ -569,9 +580,14 @@ release -> worktree removal.
   cannot close. Nothing in this workflow needs it: the role guard blocks it
   in both roles (Claude), and Codex children copy the preamble's commands
   unchanged per the AGENTS.md rules.
-- Children sometimes send a heartbeat or repeat an earlier question instead
-  of the first `status` message; answer duplicates consistently, and ask
-  again for the status if it never arrives.
+- Children sometimes send a heartbeat or repeat an earlier question;
+  answer duplicates consistently.
+- Observed on 2026-11-05 with Orca 1.4.249: every message, `status`
+  included, wakes the coordinator. A worker's verification `status` and its
+  `worker_done` about 6 seconds later produced two wakes; the first turn
+  replied "waiting for the completion report" while the child already looked
+  finished. Since 1.13.0 the rules confirmation and verification output go
+  in the `worker_done` body and children send no routine `status`.
 - `orca worktree rm` refuses while untracked files remain (never `--force`;
   delete only the reviewed test files first, with approval). It deletes a
   task branch with no commits of its own but keeps one with commits.

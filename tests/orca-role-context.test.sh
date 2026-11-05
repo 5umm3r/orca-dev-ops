@@ -68,6 +68,7 @@ c=$(ctx "$child")
 has "child: uncommitted" "$c" "uncommitted"
 has "child: orca orchestration" "$c" "orca orchestration"
 has "child: worker_done" "$c" "worker_done"
+has "child: no routine status" "$c" "Send no routine \`status\`"
 has "child: Orca worktree rules" "$c" "Orca worktree rules"
 lacks "child: no AskUserQuestion" "$c" "AskUserQuestion"
 c=$(ORCA_STUB=fail ctx "$child/sub")

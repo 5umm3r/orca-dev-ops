@@ -15,6 +15,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `hooks/orca-role-context.sh` | SessionStart。master / child のどちらかをセッションへ通知する |
 | `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止する |
 | `hooks/orca-child-control.sh` | PostToolUse。`orca worktree create` 後に制御手順を注入する |
+| `hooks/orca-coordinator-inbox.sh` | UserPromptSubmit。コーディネーターでユーザーが入力するたびに Run のメールボックスを既読にせず確認し、未読のオーケストレーションメッセージがあれば知らせる。起床が止まったり届かなかったりしても、そのターンで処理できる |
 | `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動をブロックする（Claude と Codex） |
 | `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
@@ -131,7 +132,11 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
 - Run はコーディネーター自身の Orca ターミナルが持つ（`scripts/orca-run.sh ensure`）。
   コーディネーターは子を起動したらターンを終える。ワーカーが報告すると Orca が
   コーディネーターのターミナルへ `check` コマンドを入力して送信し、コーディネーターは
-  すべてのメッセージを処理してから再びターンを終える。
+  すべてのメッセージを処理してから再びターンを終える。メッセージは 1 通ごとに
+  コーディネーターを起こすため、子は定型の `status` を送らない。ルールを読んだことの
+  確認と検証の出力は `worker_done` の本文に含めるので、通常 1 回の Dispatch で起床は
+  1 回（`ask` があればその回数だけ追加）になる。起床が止まったり届かなかったりした
+  場合は、ユーザーの次の入力時に受信箱フックが未読のメッセージを知らせる。
 - 子の Claude セッションは `templates/child-settings.json`（`--settings`）付きで
   起動するため、プッシュ通知を送るのはコーディネーターだけになる。Orca アプリの
   通知は影響を受けない。

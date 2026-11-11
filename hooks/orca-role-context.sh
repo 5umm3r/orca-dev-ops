@@ -13,10 +13,14 @@ master)
     esc_model=$(orca_config .launch.escalate.model)
     if [ -n "$esc_model" ]; then
       launch="$launch; escalate: model $esc_model, effort $(orca_config .launch.escalate.effort)"
+      top_model=$(orca_config .launch.top.model)
+      # With top, the note follows both higher tiers, so it names them together ("each").
+      each=
+      [ -n "$top_model" ] && launch="$launch; top: model $top_model, effort $(orca_config .launch.top.effort)" each='; each'
       if [ "$mode" = auto ]; then
-        launch="$launch, chosen by the coordinator per the escalation criteria, no question"
+        launch="$launch${each:-,} chosen by the coordinator per the escalation criteria, no question"
       else
-        launch="$launch, only after a Model question"
+        launch="$launch${each:-,} only after a Model question"
       fi
     fi
     launch="$launch)"

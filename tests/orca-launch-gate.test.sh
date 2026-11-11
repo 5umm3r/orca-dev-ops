@@ -254,6 +254,7 @@ check "semi-auto escalate: worker-start other agent denies" deny \
   "$(input 'orca orchestration worker-start --agent codex --model claude-opus-5-5 --effort high' "$mans")"
 msg=$(reason "$(input "$esc" "$none")")
 has "semi-auto escalate: reason names the Model question" "$msg" "no answered question about the child's Model"
+has "semi-auto escalate: reason keeps the escalate-only rule" "$msg" "(the user must answer Model before every escalate launch;"
 result "semi-auto escalate: reason does not ask for Agent or Effort" no "$(printf '%s' "$msg" | grep -qF 'Agent, Model' && echo yes || echo no)"
 msg=$(reason "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort low"' "$mans")")
 has "semi-auto escalate: reason names the default tier" "$msg" "agent claude, model claude-sonnet-5-5, and effort medium"
@@ -277,6 +278,40 @@ check "semi-auto escalate codex agent: worker-start escalate values allow after 
   "$(input 'orca orchestration worker-start --agent codex --model gpt-sol-pro --effort max' "$codex_all")"
 check "semi-auto escalate codex agent: claude with escalate values denies" deny \
   "$(input 'orca terminal create --command "claude --model gpt-sol-pro --effort max"' "$mans")"
+fable='orca terminal create --worktree name:cc-x --command "claude --model claude-fable-5-2 --effort high"'
+
+# Mode semi-auto with launch.escalate and launch.top: the top tier also only after an answered
+# Model question (the same question as escalate).
+printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"},"top":{"model":"claude-fable-5-2","effort":"high"}}}' > "$cfg"
+check "semi-auto top: default values allow without a transcript" allow "$(input "$dflt" '')"
+check "semi-auto top: top values deny without a transcript" deny "$(input "$fable" '')"
+check "semi-auto top: top values deny without a Model answer" deny "$(input "$fable" "$none")"
+check "semi-auto top: top values allow after an answered Model question" allow "$(input "$fable" "$mans")"
+check "semi-auto top: escalate values still allow after a Model answer" allow "$(input "$esc" "$mans")"
+check "semi-auto top: escalate values still deny without it" deny "$(input "$esc" "$none")"
+check "semi-auto top: Model answer before the last launch denies" deny \
+  "$(input "$fable" "$(transcript top-stale claude-prompt claude-ask-two claude-launch-ok)")"
+check "semi-auto top: worker-start top values allow after a Model answer" allow \
+  "$(input 'orca orchestration worker-start --task t --agent claude --model=claude-fable-5-2 --effort high' "$mans")"
+check "semi-auto top: worker-start top values deny without it" deny \
+  "$(input 'orca orchestration worker-start --agent claude --model claude-fable-5-2 --effort high' "$none")"
+check "semi-auto top: top model with the escalate effort mismatch denies" deny \
+  "$(input 'orca terminal create --command "claude --model claude-fable-5-2 --effort medium"' "$mans")"
+check "semi-auto top: top model with another effort denies" deny \
+  "$(input 'orca terminal create --command "claude --model claude-fable-5-2 --effort max"' "$mans")"
+check "semi-auto top: other agent with top values denies" deny \
+  "$(input 'orca terminal create --command "codex -m claude-fable-5-2 -c model_reasoning_effort=high"' "$mans")"
+check "semi-auto top: default and top launch together allow with the answer" allow "$(input "$dflt && $fable" "$mans")"
+msg=$(reason "$(input "$fable" "$none")")
+has "semi-auto top: reason names the top tier and the Model question" "$msg" "this launch uses the top tier of .orca-dev-ops.json, and this session has no answered question about the child's Model"
+has "semi-auto top: reason names both higher tiers' rule" "$msg" "(the user must answer Model before every escalate or top launch;"
+has "semi-auto top: reason for an escalate launch names the escalate tier" "$(reason "$(input "$esc" "$none")")" "this launch uses the escalate tier of .orca-dev-ops.json"
+has "semi-auto top: reason for both higher tiers names both" "$(reason "$(input "$esc && $fable" "$none")")" "this launch uses the escalate and the top tier of .orca-dev-ops.json"
+msg=$(reason "$(input 'orca terminal create --command "claude --model claude-fable-5-2 --effort low"' "$mans")")
+has "semi-auto top: reason lists the three tiers" "$msg" \
+  "which allows only agent claude, model claude-sonnet-5-5, and effort medium, or, only after the user answered a question with header \`Model\` in this session since the last successful launch, agent claude, model claude-opus-5-5, and effort high, or agent claude, model claude-fable-5-2, and effort high (either only after that answer), and this launch has"
+has "semi-auto top: reason names the third tier's flags" "$msg" \
+  "Third tier: Claude: --model claude-fable-5-2 --effort high; Codex: -m claude-fable-5-2 -c model_reasoning_effort=high; worker-start: --agent claude --model claude-fable-5-2 --effort high"
 
 # Mode semi-auto without launch.escalate: the same as auto without it.
 printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-opus-5-5","effort":"high"}}' > "$cfg"
@@ -324,6 +359,36 @@ check "auto escalate codex agent: claude with escalate values denies" deny \
   "$(input 'orca terminal create --command "claude --model gpt-sol-pro --effort max"' '')"
 check "auto escalate codex agent: other effort denies" deny \
   "$(input "orca terminal create --command \"$codex_cmd -m gpt-sol-pro -c model_reasoning_effort=xhigh\"" '')"
+
+# Mode auto with launch.escalate and launch.top: any of the three tiers without a question.
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"},"top":{"model":"claude-fable-5-2","effort":"high"}}}' > "$cfg"
+check "auto top: top values allow without a transcript" allow "$(input "$fable" '')"
+check "auto top: top values allow with a nonexistent transcript" allow "$(input "$fable" "$tmp/scratch/nowhere.jsonl")"
+check "auto top: top values allow without a Model answer" allow "$(input "$fable" "$none")"
+check "auto top: worker-start top values allow" allow \
+  "$(input 'orca orchestration worker-start --agent claude --model claude-fable-5-2 --effort high' '')"
+check "auto top: escalate values allow" allow "$(input "$esc" '')"
+check "auto top: default values allow" allow "$(input "$dflt" '')"
+check "auto top: all three tiers together allow" allow "$(input "$dflt && $esc && $fable" '')"
+check "auto top: top model with the default effort denies" deny \
+  "$(input 'orca terminal create --command "claude --model claude-fable-5-2 --effort medium"' "$mans")"
+check "auto top: top model without effort denies" deny \
+  "$(input 'orca terminal create --command "claude --model claude-fable-5-2"' "$mans")"
+check "auto top: other agent with top values denies" deny \
+  "$(input 'orca orchestration worker-start --agent codex --model claude-fable-5-2 --effort high' "$mans")"
+msg=$(reason "$(input 'orca terminal create --command "claude --model claude-haiku-5-5 --effort low"' "$mans")")
+has "auto top: reason lists the three tiers" "$msg" \
+  "sets launch mode auto, which allows only agent claude, model claude-sonnet-5-5, and effort medium, or agent claude, model claude-opus-5-5, and effort high, or agent claude, model claude-fable-5-2, and effort high, and this launch has"
+has "auto top: reason names the second tier's flags" "$msg" "Second tier: Claude: --model claude-opus-5-5 --effort high"
+has "auto top: reason names the third tier's flags" "$msg" "Third tier: Claude: --model claude-fable-5-2 --effort high"
+result "auto top: reason has no Model clause" no "$(printf '%s' "$msg" | grep -qF 'header `Model`' && echo yes || echo no)"
+
+# Without launch.top, the fable model is denied as before, in both modes.
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"
+check "auto escalate, no top: fable denies" deny "$(input "$fable" "$mans")"
+result "auto escalate, no top: reason has no third tier" no "$(reason "$(input "$fable" "$mans")" | grep -qF 'Third tier' && echo yes || echo no)"
+printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"
+check "semi-auto escalate, no top: fable denies with a Model answer" deny "$(input "$fable" "$mans")"
 
 # launch.escalate with mode ask makes the file invalid: ask mode applies, the escalate tier is not recognized.
 printf '%s\n' '{"launch":{"mode":"ask","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"

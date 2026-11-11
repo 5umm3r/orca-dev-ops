@@ -128,8 +128,8 @@ orca_worktrees() {
 # so a child cannot loosen its own limits by editing its copy. A missing file, or a checkout
 # whose main checkout git cannot name, means the built-in defaults (the behavior without
 # settings). An invalid file (bad JSON, an unknown key, a wrong type or value, launch mode
-# semi-auto or auto without agent, model, and effort, or launch.escalate without mode
-# semi-auto or auto) is ignored as a whole: the defaults apply and
+# semi-auto or auto without agent, model, and effort, launch.escalate without mode
+# semi-auto or auto, or launch.top without launch.escalate) is ignored as a whole: the defaults apply and
 # ORCA_CONFIG_ERROR says why.
 # Deprecated: the monitor section (wakeOnStatus, timeoutMs) configured scripts/orca-wait.sh,
 # which 1.12.0 removed (Orca wakes the coordinator itself). It is still accepted and checked as
@@ -143,7 +143,10 @@ ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"small
 # suggested "value" only when adding that value to the file keeps it valid. The hooks do not use it.
 ORCA_CONFIG_OPT_IN='{path: ["launch", "agent"]}, {path: ["launch", "model"]}, {path: ["launch", "effort"]},
   ({path: ["launch", "escalate"]} + if (.launch.mode == "semi-auto" or .launch.mode == "auto") and .launch.agent == "claude"
-    then {value: {model: "claude-opus-5-5", effort: "high"}} else {} end)'
+    then {value: {model: "claude-opus-5-5", effort: "high"}} else {} end),
+  ({path: ["launch", "top"]} + if (.launch.mode == "semi-auto" or .launch.mode == "auto") and .launch.agent == "claude"
+      and (.launch.escalate | type) == "object"
+    then {value: {model: "claude-fable-5-2", effort: "high"}} else {} end)'
 # Reads the slurped file (an array of its JSON values) and prints every problem, "; "-joined;
 # empty when the file is valid.
 ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
@@ -153,10 +156,14 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
     elif (.[$name] | type) != "object" then "\($name) must be an object"
     else (.[$name] | keys - $allowed)[] | "unknown key \($name).\(.)" end;
   def need($k; ok; $what): if has($k) and (.[$k] | ok | not) then "\($k) must be \($what)" else empty end;
+  def tier($k): select(has($k)) | .[$k] | if type != "object" then "\($k) must be an object"
+    else ((keys - ["model", "effort"])[] | "\($k).\(.) is not allowed"),
+      (["model", "effort"][] as $f | select((has($f) | not) or (.[$f] | word | not))
+        | "\($k).\($f) must be a non-empty string without spaces") end;
   if length != 1 then "the file must hold exactly one JSON object"
   else .[0] | if type != "object" then "the top level must be a JSON object" else [
     ((keys - ["launch", "limits", "monitor"])[] | "unknown key \(.)"),
-    section("launch"; ["mode", "agent", "model", "effort", "escalate"]),
+    section("launch"; ["mode", "agent", "model", "effort", "escalate", "top"]),
     section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
     section("monitor"; ["wakeOnStatus", "timeoutMs"]),
     (.launch | objects | (
@@ -164,12 +171,11 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
       need("agent"; . == "claude" or . == "codex"; "\"claude\" or \"codex\""),
       need("model"; word; "a non-empty string without spaces"),
       need("effort"; word; "a non-empty string without spaces"),
-      (select(has("escalate")) | .escalate | if type != "object" then "escalate must be an object"
-        else ((keys - ["model", "effort"])[] | "escalate.\(.) is not allowed"),
-          (["model", "effort"][] as $k | select((has($k) | not) or (.[$k] | word | not))
-            | "escalate.\($k) must be a non-empty string without spaces") end),
+      tier("escalate"),
       (select(has("escalate") and .mode != "semi-auto" and .mode != "auto")
         | "escalate is only valid with mode \"semi-auto\" or \"auto\""),
+      tier("top"),
+      (select(has("top") and (has("escalate") | not)) | "top is only valid together with escalate"),
       (select((.mode == "semi-auto" or .mode == "auto") and ([.agent, .model, .effort] | all(word) | not))
         | "mode \"\(.mode)\" needs agent, model, and effort")) | "launch.\(.)"),
     (.limits | objects | (

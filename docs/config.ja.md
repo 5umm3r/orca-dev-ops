@@ -51,14 +51,18 @@
   ファイルに無いもの。リーフ単位で示す（例: `limits.smallChangeLines`）。書かなくても
   デフォルト値が適用されるが、追加すると現在の値で固定される。
 - `settings: missing key <キー> (suggested <値>)`: デフォルト値の無いキーのうち、
-  追加してもファイルが有効なままになる推奨値があるもの。現在は `launch.escalate` のみで、
-  ファイルの `launch.mode` が `"semi-auto"` または `"auto"` で、`launch.agent` が
-  `"claude"` のときに
-  `{"model": "claude-opus-5-5", "effort": "high"}` を提示する。
+  追加してもファイルが有効なままになる推奨値があるもの。現在は 2 つある。
+  `launch.escalate` は、ファイルの `launch.mode` が `"semi-auto"` または `"auto"` で、
+  `launch.agent` が `"claude"` のときに
+  `{"model": "claude-opus-5-5", "effort": "high"}` を提示する。`launch.top` は、
+  同じ条件に加えてファイルにすでに `launch.escalate` があるときに
+  `{"model": "claude-fable-5-2", "effort": "high"}` を提示する。そのため
+  `escalate` の無いファイルでは、1 回目の `--settings=add` で `escalate` が追加され、
+  `top` が提示されるのは次の実行からになる。費用の高い段階は、必ず別に選ぶことになる。
 - `settings: available key <キー> (no default; set by hand, see docs/config.md)`:
   デフォルト値の無いキーのうち、ファイルに無く、適用できる推奨値も無いもの
   （`launch.agent`・`launch.model`・`launch.effort`、条件を満たさない場合の
-  `launch.escalate`）。自動では追加しない。
+  `launch.escalate` と `launch.top`）。自動では追加しない。
 - `settings: reset would change <キー> (<現在の値> -> <新しい値または removed>)`:
   `--settings=reset` で変わる、または消えるファイル内の値すべて。
 
@@ -84,15 +88,17 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 ```json
 {
   "launch": { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
-              "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
+              "escalate": { "model": "claude-opus-5-5", "effort": "high" },
+              "top":      { "model": "claude-fable-5-2", "effort": "high" } },
   "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
 どのキーも省略でき、省略したキーはデフォルト値になる。`{}` はファイルが無いのと同じ。
 この例のように `"mode": "auto"` の場合、タスクがエスカレーション基準に当てはまれば、
-コーディネーターは質問せずにエスカレート先の段階で起動する。先にユーザーに `Model` の
-質問へ答えてもらうには `"semi-auto"` にする。
+コーディネーターは質問せずにエスカレート先の段階で起動し、より厳しい最上位の基準に
+当てはまれば最上位の段階で起動する。先にユーザーに `Model` の質問へ答えてもらうには
+`"semi-auto"` にする。
 
 ## キー
 
@@ -105,6 +111,7 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 | `launch.model` | 空白を含まない空でない文字列 | 未設定 | エージェント固有のモデル値。Claude は `--model`、Codex は `-m` / `--model` |
 | `launch.effort` | 空白を含まない空でない文字列 | 未設定 | エージェント固有のエフォート値。Claude は `--effort`、Codex は `-c model_reasoning_effort=<値>` |
 | `launch.escalate` | オブジェクト `{model, effort}` | 未設定 | 同じエージェントでの 2 つ目の起動段階。`launch.mode` が `"semi-auto"` または `"auto"` のときだけ有効。`model` と `effort` は空白を含まない空でない文字列（後述） |
+| `launch.top` | オブジェクト `{model, effort}` | 未設定 | 同じエージェントでの 3 つ目の、最上位の起動段階。`launch.escalate` と一緒のときだけ有効（したがって `"semi-auto"` または `"auto"` のときだけ）。形式は `launch.escalate` と同じ（後述） |
 
 `ask`（デフォルト）では起動ゲートは従来どおり。子を起動するたびに、コーディネーターは
 ヘッダー `Agent`・`Model`・`Effort` の質問を 1 問ずつユーザーに出し、起動ゲートは
@@ -112,8 +119,8 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 このモードでの `launch.agent`・`launch.model`・`launch.effort` は、それらの質問の
 「(Recommended)」の選択肢にすぎず、ゲートの拒否メッセージがその値を示す。
 
-`semi-auto` と `auto` では質問が無くなる（`semi-auto` は `launch.escalate` の `Model`
-の質問だけを残し、`auto` は何も質問しない）。ユーザーはエージェント・モデル・エフォートを
+`semi-auto` と `auto` では質問が無くなる（`semi-auto` は `launch.escalate` と
+`launch.top` のための `Model` の質問だけを残し、`auto` は何も質問しない）。ユーザーはエージェント・モデル・エフォートを
 このファイルで一度だけ決め、`launch.agent`・`launch.model`・`launch.effort` は必須に
 なる（3 つが揃わない `semi-auto` や `auto` はファイル全体が不正になる）。通常の段階では
 起動ゲートはトランスクリプトを読まず、コマンド内のすべての起動を解析し、3 つの値が
@@ -130,7 +137,7 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 値が異なる場合や、コマンドが値を指定していない場合は、期待する値を示すメッセージで
 拒否する。値は書かれたとおりに比較し、スキルのグレードからエフォートへの対応表は
 `semi-auto` と `auto` では使わない。`launch.escalate` が無ければ `semi-auto` と `auto`
-の動作は同じで、違いはエスカレート先の段階を誰が選ぶかだけである（後述）。
+の動作は同じで、違いはエスカレート先と最上位の段階を誰が選ぶかだけである（後述）。
 
 #### `launch.escalate`
 
@@ -167,6 +174,36 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 基準に当てはまると判断したときに、質問せずエスカレート先の段階で起動する。従来の動作
 （エスカレート先で起動する前に毎回 `Model` の質問をする）を続けるには
 `"mode": "semi-auto"` にする。
+
+#### `launch.top`
+
+`launch.top` は任意の `{model, effort}` で、`launch.escalate` の上に 3 つ目の、最上位の
+段階を加える。例は `{"model": "claude-fable-5-2", "effort": "high"}`（Fable 5.2 の
+料金は Opus 5.5 の 2 倍）。形式と規則は `escalate` と同じで（`model` と `effort` だけを
+持ち、エージェントは `launch.agent`）、`launch.escalate` もあるときだけ有効である。
+`escalate` は `launch.mode` が `"semi-auto"` または `"auto"` のときだけ有効なので、
+`top` も同じ条件になる。
+
+- 最上位の段階を選ぶ基準は、エスカレーション基準より厳しい。上の (a)〜(d) にだけ
+  当てはまるタスクはエスカレート先の段階のままで、最上位の段階には次のどれかが要る。
+  (e) 同じ子がエスカレート先の段階で 2 回の手戻り Dispatch を必要とした。(f) 安全機構
+  （フック、起動ゲート、ガード）の意味を変える変更で、その設計上の判断が残っている。
+  つまり (a) と (b) の安全機構の部分の両方に当てはまる。(g) 結果をテストで確かめにくく、
+  誤りの代償が大きい。並行処理、権限の境界、データ移行など。
+- ゲートはエスカレート先の段階とまったく同じに扱う。`launch.agent` を `top` のモデルと
+  エフォートそのままで起動する場合、`auto` ではトランスクリプトを読まずに許可し、
+  `semi-auto` では直前の成功した起動より後に `Model` の質問への回答があるときだけ
+  許可する。この `Model` の質問はエスカレート先と共通である。(e)〜(g) に当てはまる
+  ときの選択肢は、最上位のモデルを先頭に「(Recommended)」付きで、次にエスカレート先の
+  モデル、最後に通常のモデルを置く。(a)〜(d) にだけ当てはまるときの選択肢は上と同じ。
+- `auto` では、コーディネーターはワークツリーのコメントに `tier:top reason:(<記号>)`
+  を記録する（ほかに `tier:escalate ...` と `tier:default`）。
+- ゲートの拒否メッセージは、2 つ目の段階の後に 3 つ目の段階とそのフラグを示す。
+- 上の制限はここにも当てはまる。`semi-auto` で、ユーザーが 3 つのモデルのどれを
+  選んだかはゲートには分からない。
+
+v1.14.0 から `top` を受け付ける。`top` の無いファイルの動作は従来とまったく同じで、
+3 つ目の段階は存在せず、その値での起動は拒否する。
 
 ### `limits`
 
@@ -219,6 +256,9 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 - `launch.escalate` が `model` と `effort` だけを持つオブジェクトでない、どちらかの値が
   空白を含まない空でない文字列でない、または `launch.mode` が `"semi-auto"` でも
   `"auto"` でもない。
+- `launch.top` が `model` と `effort` だけを持つオブジェクトでない、どちらかの値が
+  空白を含まない空でない文字列でない、または `launch.escalate` が無い
+  （`launch.top is only valid together with escalate`）。
 
 不正なファイルは全体を無視し、そこからは何も採用しない。最も厳しい動作である
 launch mode `ask` を含め、組み込みのデフォルト値を使う。問題は次の場所で報告する。

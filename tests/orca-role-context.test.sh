@@ -42,6 +42,11 @@ has "master, auto with escalate: default tier" "$m" "Launch mode: auto (agent cl
 has "master, auto with escalate: escalate tier" "$m" "escalate: model claude-opus-5-5, effort high, chosen by the coordinator per the escalation criteria, no question)"
 lacks "master, auto with escalate: no Model question" "$m" "only after a Model question"
 result "master, auto with escalate: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
+lacks "master, auto with escalate only: no top tier" "$m" "top:"
+printf '%s\n' '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"},"top":{"model":"claude-fable-5-2","effort":"high"}}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, auto with top: both higher tiers, chosen by the coordinator" "$m" "escalate: model claude-opus-5-5, effort high; top: model claude-fable-5-2, effort high; each chosen by the coordinator per the escalation criteria, no question)"
+result "master, auto with top: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
 printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"codex","model":"gpt-sol","effort":"xhigh"}}' > "$repo/.orca-dev-ops.json"
 m=$(ctx "$repo")
 has "master, semi-auto: mode and values" "$m" "Launch mode: semi-auto (agent codex, model gpt-sol, effort xhigh; no Agent/Model/Effort questions)."
@@ -52,6 +57,11 @@ m=$(ctx "$repo")
 has "master, semi-auto with escalate: default tier" "$m" "Launch mode: semi-auto (agent claude, model claude-sonnet-5-5, effort medium;"
 has "master, semi-auto with escalate: escalate tier" "$m" "escalate: model claude-opus-5-5, effort high, only after a Model question)"
 lacks "master, semi-auto with escalate: not chosen by the coordinator" "$m" "chosen by the coordinator"
+lacks "master, semi-auto with escalate only: no top tier" "$m" "top:"
+printf '%s\n' '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"},"top":{"model":"claude-fable-5-2","effort":"high"}}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, semi-auto with top: both higher tiers after a Model question" "$m" "escalate: model claude-opus-5-5, effort high; top: model claude-fable-5-2, effort high; each only after a Model question)"
+result "master, semi-auto with top: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
 result "master, semi-auto with escalate: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
 printf '%s\n' '{"launch":{"mode":"ask","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$repo/.orca-dev-ops.json"
 m=$(ctx "$repo")

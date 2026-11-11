@@ -53,13 +53,18 @@ also reports what a newer plugin offers and what a reset would lose:
   the file lacks, at leaf level (for example `limits.smallChangeLines`). The
   default applies anyway; adding it pins the current value.
 - `settings: missing key <key> (suggested <value>)`: an opt-in key with a
-  suggested value that keeps the file valid. Only `launch.escalate` has one:
-  `{"model": "claude-opus-5-5", "effort": "high"}`, offered when the file has
-  `launch.mode` `"semi-auto"` or `"auto"` and `launch.agent: "claude"`.
+  suggested value that keeps the file valid. Two keys have one:
+  `launch.escalate` is `{"model": "claude-opus-5-5", "effort": "high"}`,
+  offered when the file has `launch.mode` `"semi-auto"` or `"auto"` and
+  `launch.agent: "claude"`; `launch.top` is
+  `{"model": "claude-fable-5-2", "effort": "high"}`, offered under the same
+  conditions when the file already has `launch.escalate`. A file without
+  `escalate` therefore gets `escalate` from one `--settings=add` and is offered
+  `top` only on the next run, so the costlier tier is always a separate choice.
 - `settings: available key <key> (no default; set by hand, see docs/config.md)`:
   an opt-in key the file lacks with no applicable suggestion (`launch.agent`,
-  `launch.model`, `launch.effort`, and `launch.escalate` otherwise). It is never
-  added automatically.
+  `launch.model`, `launch.effort`, and `launch.escalate` and `launch.top`
+  otherwise). It is never added automatically.
 - `settings: reset would change <key> (<old> -> <new or removed>)`: every value
   in the file that `--settings=reset` would change or remove.
 
@@ -87,15 +92,17 @@ line per section.
 ```json
 {
   "launch": { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
-              "escalate": { "model": "claude-opus-5-5", "effort": "high" } },
+              "escalate": { "model": "claude-opus-5-5", "effort": "high" },
+              "top":      { "model": "claude-fable-5-2", "effort": "high" } },
   "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
 Every key is optional; a missing key takes its default. `{}` is the same as
 no file. With `"mode": "auto"` as here, the coordinator launches the escalate
-tier without a question when a task meets an escalation criterion; use
-`"semi-auto"` to have the user answer a `Model` question first.
+tier without a question when a task meets an escalation criterion, and the
+top tier when it meets one of the stricter top criteria; use `"semi-auto"` to
+have the user answer a `Model` question first.
 
 ## Keys
 
@@ -108,6 +115,7 @@ tier without a question when a task meets an escalation criterion; use
 | `launch.model` | non-empty string without spaces | unset | The agent's own model value: Claude `--model`, Codex `-m` / `--model` |
 | `launch.effort` | non-empty string without spaces | unset | The agent's own effort value: Claude `--effort`, Codex `-c model_reasoning_effort=<value>` |
 | `launch.escalate` | object `{model, effort}` | unset | A second launch tier for the same agent, valid only with `launch.mode` `"semi-auto"` or `"auto"`; `model` and `effort` are non-empty strings without spaces (below) |
+| `launch.top` | object `{model, effort}` | unset | A third, highest launch tier for the same agent, valid only together with `launch.escalate` (so only with `"semi-auto"` or `"auto"`); the same shape as `launch.escalate` (below) |
 
 `ask` (the default) keeps the launch gate as it is: before every child launch
 the coordinator asks the user one question each with header `Agent`, `Model`,
@@ -117,7 +125,7 @@ transcript holds the answers after the last successful launch. In this mode
 "(Recommended)" option of those questions; the gate's deny message names them.
 
 `semi-auto` and `auto` remove the questions (`semi-auto` keeps only the
-`Model` question of `launch.escalate`; `auto` asks nothing). The user decides
+`Model` question of `launch.escalate` and `launch.top`; `auto` asks nothing). The user decides
 the agent, model, and effort once, in this file, and `launch.agent`,
 `launch.model`, and `launch.effort` are then required (`semi-auto` or `auto`
 without all three makes the file invalid). For the default tier the launch
@@ -136,7 +144,7 @@ A different value, or a value the command does not set, is denied with a
 message naming the expected values. The values are compared as written: the
 grade-to-effort mapping of the skill does not apply in `semi-auto` or
 `auto`. Without `launch.escalate`, `semi-auto` and `auto` behave the same; they
-differ only in how the escalate tier is chosen (below).
+differ only in how the escalate and top tiers are chosen (below).
 
 #### `launch.escalate`
 
@@ -177,6 +185,40 @@ Migration: from v1.11.0, a file with `"mode": "auto"` and `escalate` launches
 the escalate tier without a question when the coordinator judges a criterion
 met. Set `"mode": "semi-auto"` to keep the previous behavior (one `Model`
 question before every escalate launch).
+
+#### `launch.top`
+
+`launch.top` is an optional `{model, effort}` that adds a third, highest tier
+on top of `launch.escalate`, for example
+`{"model": "claude-fable-5-2", "effort": "high"}` (Fable 5.2 costs twice Opus
+5.5). It has the same shape and rules as `escalate` (only `model` and
+`effort`, the agent is `launch.agent`), and it is valid only when
+`launch.escalate` is also set, which in turn needs `launch.mode` `"semi-auto"`
+or `"auto"`.
+
+- The top tier is chosen only under stricter criteria. A task that meets only
+  (a)-(d) above stays on the escalate tier; the top tier needs one of: (e) the
+  same child needed two rework Dispatches on the escalate tier; (f) the change
+  alters the meaning of a safety mechanism (hooks, the launch gate, the guard)
+  while design decisions about it remain open, that is (a) together with the
+  safety part of (b); (g) the result is hard to verify by tests and a mistake
+  is costly: concurrency, permission boundaries, data migration.
+- The gate treats it exactly like the escalate tier. A launch of
+  `launch.agent` with exactly the `top` model and effort is allowed in `auto`
+  without reading the transcript, and in `semi-auto` only after an answered
+  `Model` question since the last successful launch. It is the same `Model`
+  question as for escalate: when (e)-(g) holds, its options are the top model
+  first, labeled "(Recommended)", then the escalate model, then the default
+  model; when only (a)-(d) holds, the options stay as above.
+- In `auto` the coordinator records `tier:top reason:(<letter>)` in the
+  worktree comment, next to `tier:escalate ...` and `tier:default`.
+- The deny message of the gate lists the third tier and its flags after the
+  second.
+- The limitation above applies too: the gate cannot tell which of the three
+  models the user chose in `semi-auto`.
+
+From v1.14.0, `top` is accepted. A file without `top` behaves exactly as
+before: the third tier does not exist and a launch with its values is denied.
 
 ### `limits`
 
@@ -230,7 +272,10 @@ The whole file is checked on every read. It is invalid when:
   `launch.model`, and `launch.effort`;
 - `launch.escalate` is not an object with only `model` and `effort`, either
   value is not a non-empty string without spaces, or `launch.mode` is neither
-  `"semi-auto"` nor `"auto"`.
+  `"semi-auto"` nor `"auto"`;
+- `launch.top` is not an object with only `model` and `effort`, either value
+  is not a non-empty string without spaces, or `launch.escalate` is not set
+  (`launch.top is only valid together with escalate`).
 
 An invalid file is ignored as a whole; nothing is taken from it. The built-in
 defaults apply, including launch mode `ask`, which is the strictest behavior.

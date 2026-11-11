@@ -75,6 +75,13 @@ result "semi-auto: mode taken" semi-auto "$(printf '%s' "$out" | jq -r .launch.m
 printf '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":%s}}\n' "$esc" > "$cfg"; show "$repo"
 result "semi-auto escalate: exit 0" 0 "$rc"
 result "semi-auto escalate: taken" "$esc" "$(printf '%s' "$out" | jq -c .launch.escalate)"
+top='{"model":"claude-fable-5-2","effort":"high"}'
+printf '{"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":%s,"top":%s}}\n' "$esc" "$top" > "$cfg"; show "$repo"
+result "top with escalate: exit 0" 0 "$rc"
+result "top with escalate: taken" "$top" "$(printf '%s' "$out" | jq -c .launch.top)"
+printf '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":%s,"top":%s}}\n' "$esc" "$top" > "$cfg"; show "$repo"
+result "semi-auto top with escalate: exit 0" 0 "$rc"
+result "semi-auto top with escalate: taken" "$top" "$(printf '%s' "$out" | jq -c .launch.top)"
 
 # --- read from the main checkout, never from the worktree
 printf '{"limits":{"maxWorktrees":7}}\n' > "$cfg"
@@ -123,6 +130,16 @@ invalid "escalate model with a space" '{"launch":{'"$ea"',"escalate":{"model":"o
 invalid "escalate not an object" '{"launch":{'"$ea"',"escalate":"opus"}}' "launch.escalate must be an object"
 invalid "escalate null" '{"launch":{'"$ea"',"escalate":null}}' "launch.escalate must be an object"
 invalid "escalate outside launch" '{"escalate":{"model":"m","effort":"high"}}' "unknown key escalate"
+ex='"escalate":{"model":"m","effort":"high"}'
+invalid "top without escalate" '{"launch":{'"$ea"',"top":{"model":"f","effort":"high"}}}' "launch.top is only valid together with escalate"
+invalid "top with mode ask" '{"launch":{"mode":"ask",'"$ex"',"top":{"model":"f","effort":"high"}}}' 'launch.escalate is only valid with mode "semi-auto" or "auto"'
+invalid "top with mode ask, no escalate" '{"launch":{"mode":"ask","top":{"model":"f","effort":"high"}}}' "launch.top is only valid together with escalate"
+invalid "top with an unknown key" '{"launch":{'"$ea"','"$ex"',"top":{"model":"f","effort":"high","agent":"codex"}}}' "launch.top.agent is not allowed"
+invalid "top with an empty model" '{"launch":{'"$ea"','"$ex"',"top":{"model":"","effort":"high"}}}' "launch.top.model must be a non-empty string without spaces"
+invalid "top without effort" '{"launch":{'"$ea"','"$ex"',"top":{"model":"f"}}}' "launch.top.effort must be a non-empty string without spaces"
+invalid "top effort with a space" '{"launch":{'"$ea"','"$ex"',"top":{"model":"f","effort":"high --x"}}}' "launch.top.effort must be a non-empty string without spaces"
+invalid "top not an object" '{"launch":{'"$ea"','"$ex"',"top":"fable"}}' "launch.top must be an object"
+invalid "top outside launch" '{"top":{"model":"f","effort":"high"}}' "unknown key top"
 invalid "maxWorktrees 0" '{"limits":{"maxWorktrees":0}}' "limits.maxWorktrees must be an integer >= 1"
 invalid "maxWorktrees fraction" '{"limits":{"maxWorktrees":2.5}}' "limits.maxWorktrees must be an integer >= 1"
 invalid "negative smallChangeFiles" '{"limits":{"smallChangeFiles":-1}}' "limits.smallChangeFiles must be an integer >= 0"
@@ -156,6 +173,15 @@ result "opt-in suggestion: escalate with semi-auto and claude" '{"model":"claude
 result "opt-in suggestion: none with semi-auto and codex" null "$(with_suggestions '{"launch":{"mode":"semi-auto","agent":"codex","model":"m","effort":"e"}}' | jq -c .launch.escalate)"
 result "opt-in suggestion: none with ask" '{"launch":{"mode":"ask","agent":"claude"}}' "$(with_suggestions '{"launch":{"mode":"ask","agent":"claude"}}')"
 result "opt-in suggestion: none with codex" null "$(with_suggestions '{"launch":{"mode":"auto","agent":"codex","model":"m","effort":"e"}}' | jq -c .launch.escalate)"
+ee='"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}'
+with_suggestions '{"launch":{'"$ee"'}}' > "$cfg"; show "$repo"
+result "opt-in suggestion: top with escalate still valid" 0 "$rc"
+result "opt-in suggestion: top with escalate, auto, and claude" '{"model":"claude-fable-5-2","effort":"high"}' "$(printf '%s' "$out" | jq -c .launch.top)"
+with_suggestions '{"launch":{"mode":"semi-auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"}}}' > "$cfg"; show "$repo"
+result "opt-in suggestion: top with escalate and semi-auto still valid" 0 "$rc"
+result "opt-in suggestion: top with escalate and semi-auto" '{"model":"claude-fable-5-2","effort":"high"}' "$(printf '%s' "$out" | jq -c .launch.top)"
+result "opt-in suggestion: no top without escalate" null "$(with_suggestions '{"launch":{'"$ea"'}}' | jq -c .launch.top)"
+result "opt-in suggestion: no top with codex" null "$(with_suggestions '{"launch":{"mode":"auto","agent":"codex","model":"m","effort":"e","escalate":{"model":"m2","effort":"e2"}}}' | jq -c .launch.top)"
 rm -f "$cfg"
 
 # --- usage

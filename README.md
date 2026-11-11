@@ -98,8 +98,9 @@ commands, are added by hand outside the markers.
 A repository can place an optional `.orca-dev-ops.json` at its top level to
 choose the launch mode (`ask`: questions before every launch, the default;
 `semi-auto`: a fixed agent, model, and effort without questions, plus one
-`Model` question before an optional escalate tier; `auto`: the same without
-any question, the coordinator choosing the tier), the worktree and
+`Model` question before an optional escalate tier or an optional top tier
+above it; `auto`: the same without any question, the coordinator choosing the
+tier), the worktree and
 small-change limits. It is read from the main
 checkout only, and an invalid file is ignored with a warning. The `monitor`
 section of earlier versions is ignored since 1.12.0 (still accepted, with a
@@ -159,8 +160,8 @@ Codex hooks are kept.
   `Effort`). The launch gate reads the session transcript and blocks the launch
   until those answers exist after the last successful launch; a failed launch
   can be retried without asking again. In `semi-auto` and `auto` the gate
-  allows only the configured values (and the escalate tier: after an answered
-  `Model` question in `semi-auto`, without one in `auto`). It applies to
+  allows only the configured values (and the escalate and top tiers: after an
+  answered `Model` question in `semi-auto`, without one in `auto`). It applies to
   Claude and, through repository initialization, to Codex coordinators.
 - Apart from the launch gate, Claude hooks do not apply to Codex agents. The
   sandbox flags and the rules in `AGENTS.md` are the only guards for Codex

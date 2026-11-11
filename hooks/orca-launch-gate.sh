@@ -30,7 +30,11 @@
 #   semi-auto  only when the transcript holds an answered `Model` question after the last
 #              successful launch (the same transcript logic as ask mode, `Model` only);
 #   auto       without reading the transcript (the coordinator chooses the tier itself).
-# Without launch.escalate, semi-auto and auto behave the same.
+# With launch.top {model, effort} also set (valid only together with launch.escalate), a launch
+# of launch.agent with exactly those values is a third tier, allowed the same way as escalate:
+# in semi-auto after the same answered `Model` question, in auto without reading the transcript.
+# Without launch.escalate, semi-auto and auto behave the same; without launch.top, the third
+# tier does not exist.
 # Misoperation prevention by string matching, not a sandbox.
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/orca-lib.sh"
 input=$(cat)
@@ -237,37 +241,44 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 orca_config_load "$cwd"
 [ -n "$ORCA_CONFIG_ERROR" ] && warn=" Settings warning: $ORCA_CONFIG_ERROR"
 want_agent=$(orca_config .launch.agent) want_model=$(orca_config .launch.model) want_effort=$(orca_config .launch.effort)
-# Set in semi-auto mode when every launch is in the default or the escalate tier and one is in
-# the escalate tier: only the answered Model question is then required, and no Agent or Effort
-# question.
-escalating=
+# Set in semi-auto mode when every launch is in the default, the escalate, or the top tier and
+# one is in the escalate or the top tier: only the answered Model question is then required, and
+# no Agent or Effort question. higher names the tiers above the default that the launch uses.
+escalating= higher=
 what='agent, model, and effort'
 mode=$(orca_config .launch.mode)
 if [ "$mode" = semi-auto ] || [ "$mode" = auto ]; then
   esc_model=$(orca_config .launch.escalate.model) esc_effort=$(orca_config .launch.escalate.effort)
-  tier=$(launch_params "$cmd" | awk -F "$us" -v a="$want_agent" -v m="$want_model" -v e="$want_effort" -v xm="$esc_model" -v xe="$esc_effort" '
+  top_model=$(orca_config .launch.top.model) top_effort=$(orca_config .launch.top.effort)
+  tier=$(launch_params "$cmd" | awk -F "$us" -v a="$want_agent" -v m="$want_model" -v e="$want_effort" -v xm="$esc_model" -v xe="$esc_effort" -v tm="$top_model" -v te="$top_effort" '
     { n++
       if ($1 == a && $2 == m && $3 == e) next
       if (xm != "" && $1 == a && $2 == xm && $3 == xe) { esc = 1; next }
+      if (tm != "" && $1 == a && $2 == tm && $3 == te) { top = 1; next }
       printf "B" "agent %s, model %s, effort %s", ($1 == "" ? "(unset)" : $1), ($2 == "" ? "(unset)" : $2), ($3 == "" ? "(unset)" : $3); bad = 1; exit }
     END { if (bad) exit
       if (!n) printf "Bno agent, model, or effort that could be read"
-      else if (esc) printf "E" }')
+      else printf "%s%s", (esc ? "E" : ""), (top ? "T" : "") }')
   case "$tier" in
   "") exit 0 ;;
-  E)
+  E | T | ET)
     [ "$mode" = auto ] && exit 0
-    escalating=1 what=model ;;
+    escalating=1 what=model
+    case "$tier" in E) higher='the escalate tier' ;; T) higher='the top tier' ;; *) higher='the escalate and the top tier' ;; esac
+    higher_any=escalate; [ -n "$top_model" ] && higher_any='escalate or top' ;;
   *)
     tiers="agent $want_agent, model $want_model, and effort $want_effort"
     flags="Claude: --model $want_model --effort $want_effort; Codex: -m $want_model -c model_reasoning_effort=$want_effort; worker-start: --agent $want_agent --model $want_model --effort $want_effort"
     if [ -n "$esc_model" ]; then
+      second="agent $want_agent, model $esc_model, and effort $esc_effort"
+      [ -n "$top_model" ] && second="$second, or agent $want_agent, model $top_model, and effort $top_effort"
       if [ "$mode" = auto ]; then
-        tiers="$tiers, or agent $want_agent, model $esc_model, and effort $esc_effort"
+        tiers="$tiers, or $second"
       else
-        tiers="$tiers, or, only after the user answered a question with header \`Model\` in this session since the last successful launch, agent $want_agent, model $esc_model, and effort $esc_effort"
+        tiers="$tiers, or, only after the user answered a question with header \`Model\` in this session since the last successful launch, $second${top_model:+ (either only after that answer)}"
       fi
       flags="$flags. Second tier: Claude: --model $esc_model --effort $esc_effort; Codex: -m $esc_model -c model_reasoning_effort=$esc_effort; worker-start: --agent $want_agent --model $esc_model --effort $esc_effort"
+      [ -n "$top_model" ] && flags="$flags. Third tier: Claude: --model $top_model --effort $top_effort; Codex: -m $top_model -c model_reasoning_effort=$top_effort; worker-start: --agent $want_agent --model $top_model --effort $top_effort"
     fi
     deny "Blocked a child agent launch: this repository's $ORCA_CONFIG_FILE ($ORCA_CONFIG_PATH) sets launch mode $mode, which allows only $tiers, and this launch has ${tier#B}. Launch with exactly those values ($flags). To use other values, ask the user; do not edit $ORCA_CONFIG_FILE to get around this." ;;
   esac
@@ -380,6 +391,6 @@ missing=
 [ -n "$escalating" ] || [ -n "$effort" ] || missing="$missing, Effort"
 [ -z "$missing" ] && exit 0
 if [ -n "$escalating" ]; then
-  deny "Blocked a child agent launch: this launch uses the escalate tier of $ORCA_CONFIG_FILE, and this session has no answered question about the child's Model since the last successful launch (the user must answer Model before every escalate launch; a failed launch can be retried without asking again). $how"
+  deny "Blocked a child agent launch: this launch uses $higher of $ORCA_CONFIG_FILE, and this session has no answered question about the child's Model since the last successful launch (the user must answer Model before every $higher_any launch; a failed launch can be retried without asking again). $how"
 fi
 deny "Blocked a child agent launch: this session has no answered question about the child's ${missing#, } since the last successful launch (the user must answer Agent, Model, and Effort before every launch; a failed launch can be retried without asking again). $how"

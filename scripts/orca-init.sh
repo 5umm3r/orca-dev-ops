@@ -55,7 +55,9 @@
 #                                   "missing key" lines for every default the file
 #                                   lacks and every applicable suggested opt-in key
 #                                   (launch.escalate with mode semi-auto or auto
-#                                   and agent claude), "available key" lines for the other
+#                                   and agent claude; launch.top under the same
+#                                   conditions once the file has launch.escalate),
+#                                   "available key" lines for the other
 #                                   opt-in keys it lacks, "reset would change" lines
 #                                   for every value a reset changes or removes, and
 #                                   a rerun hint when a key is missing; unchanged

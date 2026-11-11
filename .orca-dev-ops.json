@@ -2,5 +2,5 @@
   "launch":  { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
                "escalate": { "model": "claude-opus-5-5", "effort": "xhigh" },
                "top":      { "model": "claude-fable-5-2", "effort": "high" } },
-  "limits":  { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
+  "limits":  { "maxWorktrees": 5, "smallChangeFiles": 3, "smallChangeLines": 50 }
 }

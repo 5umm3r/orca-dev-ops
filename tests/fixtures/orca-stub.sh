@@ -36,7 +36,8 @@
 #                       none; the last set repeats). A set is a comma-separated list of none (an
 #                       empty list), shell (a plain shell: no agentIdentity, no header), agent
 #                       (agentIdentity claude, header on `terminal read`), or header (no
-#                       agentIdentity, header on `terminal read`). The Nth item of a set has the
+#                       agentIdentity, header on `terminal read`), or scrolled (agentIdentity
+#                       claude, no header: a reused terminal). The Nth item of a set has the
 #                       handle term_N. `terminal read` answers by the latest list call.
 #                       Needs ORCA_STUB_LOG.
 #   ORCA_STUB_TERMINALS_RECREATED  the same kind of list, used from the second `terminal create`
@@ -157,7 +158,7 @@ case "$1 $2" in
   jq -n --arg s "$state" '[$s | split(",") | to_entries[] | select(.value != "none") | {
       handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w",
       title: "agent", paneTitle: null, preview: "", connected: true, orphaned: false,
-      agentIdentity: (if .value == "agent" then "claude" else null end)}]
+      agentIdentity: (if .value == "agent" or .value == "scrolled" then "claude" else null end)}]
     | {ok: true, result: {terminals: ., totalCount: length, truncated: false}}'
   ;;
 "terminal create")

@@ -228,8 +228,9 @@ agent header (e.g. `Opus 5.5 with high effort`) is on screen. If
 and retry once with the same task ID; never re-run `task-create`. If the retry
 also fails, stop and report. The plugin's `scripts/orca-worker-start.sh`
 (resolved the same way as `orca-base-ref.sh` in "Invariants") does the header
-check and the single retry in one step: exit 0 started, 3 no header (not
-called), 4 failed twice, 5 `--task` is not a `task_...` ID or not listed in
+check and the single retry in one step (on a reused terminal whose header has
+scrolled off, Orca's `agentIdentity` in `terminal list` counts as the header):
+exit 0 started, 3 no header (not called), 4 failed twice, 5 `--task` is not a `task_...` ID or not listed in
 the Run's `task-list` (not called), 6 `worker-start` returned ok without a
 dispatch ID (not a start), 1 other failure (also a failing `task-list`).
 `orca-task-create.sh` (exit 0 with the task ID alone on stdout, 1 failed or

@@ -6,7 +6,9 @@
 # and `worker-start` then fails with "is not running a recognized agent".
 #   1. Polls `orca terminal read` every second, up to --header-timeout (default 30) seconds, until
 #      the joined screen lines (.result.terminal.tail) match the ERE --expect (default: a Claude
-#      or Codex header). No match: exit 3 without calling worker-start.
+#      or Codex header), or `orca terminal list --worktree <selector>` gives the terminal a
+#      non-empty agentIdentity (a reused terminal whose header has scrolled off). Neither: exit 3
+#      without calling worker-start.
 #   2. Runs `orca orchestration worker-start --json`. Success: prints its JSON, exit 0.
 #   3. On "not a recognized agent", waits --retry-delay (default 5) seconds and runs the identical
 #      worker-start once more with the same task ID. Never calls task-create. Success: exit 0;
@@ -63,10 +65,15 @@ list=$(orca orchestration task-list --run "$run" --json 2>&1) \
 printf '%s' "$list" | jq -e --arg t "$task" 'any(.result.tasks[]; .id == $t)' >/dev/null 2>&1 \
   || die 5 "task $task is not listed in run $run; worker-start not called"
 
-# 1. Wait for the agent header on screen.
+# 1. Wait for the agent header on screen, or for Orca to identify the agent: on a reused
+# terminal the header has scrolled off, but `terminal list` names its agentIdentity.
+known() {
+  orca terminal list --worktree "$wt" --json 2>/dev/null | jq -e --arg h "$term" \
+    'any(.result.terminals[]?; .handle == $h and (.agentIdentity | type) == "string" and .agentIdentity != "")' >/dev/null 2>&1
+}
 waited=0
 until orca terminal read --terminal "$term" --json 2>/dev/null \
-  | jq -r '.result.terminal.tail // [] | join("\n")' 2>/dev/null | grep -Eq -- "$expect"; do
+  | jq -r '.result.terminal.tail // [] | join("\n")' 2>/dev/null | grep -Eq -- "$expect" || known; do
   [ "$waited" -ge "$limit" ] && die 3 "no agent header matching /$expect/ on $term after ${limit}s; worker-start not called"
   sleep 1
   waited=$((waited + 1))

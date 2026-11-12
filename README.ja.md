@@ -26,6 +26,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
 | `scripts/orca-usage.sh` | 子 worktree のトークン使用量を Claude と Codex のローカル transcript から集計する |
 | `docs/config.ja.md` | リポジトリ設定ファイルのリファレンス |
+| `schemas/orca-dev-ops.schema.json` | リポジトリ設定ファイルの JSON Schema。エディターでの補完と検査に使う（`$schema`） |
 | `templates/worktree-rules.md` | 設置される汎用ルールブロック |
 | `templates/child-settings.json` | 子の Claude セッションに `--settings` で渡す設定。Claude Code のプッシュ通知を無効にする |
 
@@ -87,7 +88,10 @@ Codex の候補にプラグイン名付きで表示される場合は、`$` を�
 
 ## 設定
 
-リポジトリのトップレベルに任意の `.orca-dev-ops.json` を置くと、起動モード（`ask`:
+リポジトリのトップレベルに任意の `.orca-dev-ops.json` を置くと、ワークフローモード
+（`worktree`: 子がタスク用ワークツリーで実装する。デフォルト。`direct`: 子ワークツリーを
+使わず、コーディネーターがメインチェックアウトで編集の上限なしに実装し、base ref に
+直接コミットする）、起動モード（`ask`:
 起動のたびに質問する。デフォルト。`semi-auto`: 質問せず、決まったエージェント・モデル・
 エフォートで起動し、任意のエスカレート先の段階と、その上の任意の最上位の段階だけ
 `Model` の質問を 1 問出す。`auto`:
@@ -97,7 +101,10 @@ Codex の候補にプラグイン名付きで表示される場合は、`$` を�
 無視する。以前のバージョンの `monitor` セクションは 1.12.0 から無視される（ファイルは
 有効なまま、非推奨の警告を出す）。削除してよい。ファイルが無ければ動作は変わらない。初期化時にすべてのデフォルト値で
 このファイルを作成する。書き込まれた値は、後のプラグインのバージョンでデフォルト値が
-変わってもそのまま残る。詳細は
+変わってもそのまま残る。先頭のキー `$schema` は、補完と説明表示のためにエディターへ
+[schemas/orca-dev-ops.schema.json](schemas/orca-dev-ops.schema.json) を示す。
+プラグインを更新したら、各リポジトリで `/orca-init` を実行し直す。古いプラグインは
+`workflow` や `$schema` を持つファイルを不正とみなす。詳細は
 [docs/config.ja.md](docs/config.ja.md) を参照。`scripts/orca-config.sh show` で
 有効な設定を表示できる。
 

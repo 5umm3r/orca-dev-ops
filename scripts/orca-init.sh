@@ -43,11 +43,14 @@
 # once at its next start.
 #
 # Repository settings: .orca-dev-ops.json (in the main checkout, handled first):
-#   missing                     -> created with every key that has a built-in
-#                                   default (the values at creation time; later
-#                                   plugin default changes do not update it),
-#                                   without needing --apply; --no-settings skips
-#                                   this
+#   missing                     -> created with "$schema" (the plugin's JSON
+#                                   Schema URL, for editors) first, then every key
+#                                   that has a built-in default (the values at
+#                                   creation time; later plugin default changes do
+#                                   not update it), without needing --apply;
+#                                   --no-settings skips this. A file without
+#                                   "$schema" gets a "missing key $schema" line
+#                                   like any other default
 #   present, valid              -> reported as valid (with the settings warning, such
 #                                   as the monitor deprecation notice, when there is
 #                                   one; monitor is ignored since 1.12.0 and never
@@ -121,6 +124,11 @@ done
 # by --settings=add or --settings=reset. A problem does not change the exit code.
 . "$ROOT/hooks/orca-lib.sh"
 
+# The file orca-init writes: "$schema" first (for editors; the loader ignores it), then every
+# built-in default. The URL is schemas/orca-dev-ops.schema.json on the plugin's main branch.
+SCHEMA_URL='https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json'
+SETTINGS_DEFAULTS=$(jq -cn --arg s "$SCHEMA_URL" --argjson d "$ORCA_CONFIG_DEFAULTS" '{"$schema": $s} + $d')
+
 # settings_format: the settings JSON on stdin in the layout orca-init writes, one line per
 # section. Creation, --settings=add, and --settings=reset all write through it.
 settings_format() {
@@ -148,7 +156,8 @@ settings_write() {
   [ -z "$SETTINGS_WHY" ]
 }
 
-# What a valid file lacks or a reset would change, as jq definitions over the file:
+# What a valid file lacks or a reset would change, as jq definitions over the file ($d is
+# SETTINGS_DEFAULTS, so "$schema" counts as a default):
 #   missing    {path, kind, value}: every default the file lacks (kind "default", at leaf
 #              level) and every applicable suggested opt-in key it lacks (kind "suggested")
 #   available  {path}: the opt-in keys the file lacks that have no applicable suggestion
@@ -163,7 +172,7 @@ SETTINGS_JQ='def opt_in: '"$ORCA_CONFIG_OPT_IN"';
   def changes: paths(type != "object") as $p | {path: $p, old: getpath($p), new: ($d | getpath($p))}
     | select(.old != .new);
   .[0] | '
-settings_jq() { jq -rs --argjson d "$ORCA_CONFIG_DEFAULTS" "$SETTINGS_JQ$1" "$ORCA_CONFIG_PATH"; }
+settings_jq() { jq -rs --argjson d "$SETTINGS_DEFAULTS" "$SETTINGS_JQ$1" "$ORCA_CONFIG_PATH"; }
 
 # settings_report: the lines a run without --settings= prints for a valid file.
 settings_report() {
@@ -202,7 +211,7 @@ settings_reset() {
     rm -f "$_bak"
     echo "SETTINGS NOT RESET: could not copy $ORCA_CONFIG_PATH to $_bak; it was left unchanged." >&2; return 1
   fi
-  if ! settings_write "$ORCA_CONFIG_DEFAULTS"; then
+  if ! settings_write "$SETTINGS_DEFAULTS"; then
     echo "SETTINGS NOT RESET: $SETTINGS_WHY; $ORCA_CONFIG_PATH was left unchanged (backup: $_bak)." >&2; return 1
   fi
   echo "reset: $ORCA_CONFIG_PATH (backup: $_bak)"
@@ -212,7 +221,7 @@ orca_config_load "$REPO" || :
 case "$ORCA_CONFIG_STATE" in
   missing)
     if [ "$SETTINGS" = 1 ] && [ -n "$ORCA_CONFIG_PATH" ]; then
-      _settings=$(printf '%s' "$ORCA_CONFIG_DEFAULTS" | settings_format) || _settings=
+      _settings=$(printf '%s' "$SETTINGS_DEFAULTS" | settings_format) || _settings=
       # noclobber: a file that appears meanwhile is never overwritten.
       if [ -n "$_settings" ] && ( set -C; printf '%s\n' "$_settings" > "$ORCA_CONFIG_PATH" ) 2>/dev/null; then
         echo "created: $ORCA_CONFIG_PATH"

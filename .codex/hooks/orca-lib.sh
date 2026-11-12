@@ -127,17 +127,23 @@ orca_worktrees() {
 # (see docs/config.md). It is always read from the main checkout, never from a linked worktree,
 # so a child cannot loosen its own limits by editing its copy. A missing file, or a checkout
 # whose main checkout git cannot name, means the built-in defaults (the behavior without
-# settings). An invalid file (bad JSON, an unknown key, a wrong type or value, launch mode
+# settings: workflow mode worktree, the limits, launch mode ask). An invalid file (bad JSON, an
+# unknown key, a wrong type or value, launch mode
 # semi-auto or auto without agent, model, and effort, launch.escalate without mode
 # semi-auto or auto, or launch.top without launch.escalate) is ignored as a whole: the defaults apply and
 # ORCA_CONFIG_ERROR says why.
+# workflow.mode "direct" makes the coordinator implement in the main checkout and commit on the
+# base ref (the role guard lifts its edit limits there and blocks orca worktree create);
+# launch and limits stay valid next to it, for switching back.
+# $schema (a non-empty string) only points editors at schemas/orca-dev-ops.schema.json; it is
+# accepted and left out of the effective settings.
 # Deprecated: the monitor section (wakeOnStatus, timeoutMs) configured scripts/orca-wait.sh,
 # which 1.12.0 removed (Orca wakes the coordinator itself). It is still accepted and checked as
 # before, so existing files stay valid, but it is left out of the effective settings and a valid
 # file that has it gets a deprecation notice in ORCA_CONFIG_ERROR. A later major version
 # removes it.
 ORCA_CONFIG_FILE=.orca-dev-ops.json
-ORCA_CONFIG_DEFAULTS='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
+ORCA_CONFIG_DEFAULTS='{"workflow":{"mode":"worktree"},"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
 # The opt-in keys (those without a default), for orca-init.sh: a jq filter over the effective
 # settings (the defaults merged with a valid file) that emits one {path} per key, with a
 # suggested "value" only when adding that value to the file keeps it valid. The hooks do not use it.
@@ -162,10 +168,13 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
         | "\($k).\($f) must be a non-empty string without spaces") end;
   if length != 1 then "the file must hold exactly one JSON object"
   else .[0] | if type != "object" then "the top level must be a JSON object" else [
-    ((keys - ["launch", "limits", "monitor"])[] | "unknown key \(.)"),
+    ((keys - ["$schema", "workflow", "launch", "limits", "monitor"])[] | "unknown key \(.)"),
+    (select(has("$schema") and (.["$schema"] | type != "string" or length == 0)) | "$schema must be a non-empty string"),
+    section("workflow"; ["mode"]),
     section("launch"; ["mode", "agent", "model", "effort", "escalate", "top"]),
     section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
     section("monitor"; ["wakeOnStatus", "timeoutMs"]),
+    (.workflow | objects | need("mode"; . == "worktree" or . == "direct"; "\"worktree\" or \"direct\"") | "workflow.\(.)"),
     (.launch | objects | (
       need("mode"; . == "ask" or . == "semi-auto" or . == "auto"; "\"ask\", \"semi-auto\", or \"auto\""),
       need("agent"; . == "claude" or . == "codex"; "\"claude\" or \"codex\""),
@@ -210,7 +219,7 @@ orca_config_load() {
     _e=$(jq -rs "$ORCA_CONFIG_CHECK" "$ORCA_CONFIG_PATH" 2>/dev/null) || _e='it is not valid JSON'
   fi
   if [ -z "$_e" ]; then
-    _c=$(jq -cs --argjson d "$ORCA_CONFIG_DEFAULTS" '$d * .[0] | del(.monitor)' "$ORCA_CONFIG_PATH" 2>/dev/null) || _c=
+    _c=$(jq -cs --argjson d "$ORCA_CONFIG_DEFAULTS" '$d * .[0] | del(.monitor, .["$schema"])' "$ORCA_CONFIG_PATH" 2>/dev/null) || _c=
     if [ -n "$_c" ]; then
       ORCA_CONFIG=$_c ORCA_CONFIG_STATE=valid
       if jq -es '.[0] | has("monitor")' "$ORCA_CONFIG_PATH" >/dev/null 2>&1; then

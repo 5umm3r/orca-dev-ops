@@ -359,6 +359,85 @@ check "child Edit own .orca-dev-ops.json" deny "$(jq -n --arg cwd "$child" --arg
 check "child Write .orca-dev-ops.json in a subdirectory" allow "$(write "$child/sub/.orca-dev-ops.json" "$child")"
 check "master Edit .orca-dev-ops.json within the limits" allow "$(edit_in "$lim" "$lim/.orca-dev-ops.json" 3)"
 
+# --- workflow.mode "direct" (read from the main checkout): the master implements in its own main
+# checkout without the small-change limits and creates no task worktrees; child rules stay.
+dm="$tmp/direct repo"; mkdir -p "$dm/src"
+for f in a b c; do lines 30 > "$dm/src/$f.sh"; done
+marker "$dm"
+printf '%s\n' '{"workflow":{"mode":"direct"}}' > "$dm/.orca-dev-ops.json"
+new_repo "$dm"; orca_knows "$dm" main
+# One task worktree, below the default limit of 3, so a worktree-mode create is allowed.
+dm_child="$tmp/direct task"
+git -C "$dm" worktree add -q -b direct-task "$dm_child" || exit 1
+orca_knows "$dm_child" linked
+# dcfg <json | none>: commits <json> as the direct repo's settings, or removes the file.
+dcfg() {
+  if [ "$1" = none ]; then git -C "$dm" rm -q .orca-dev-ops.json
+  else printf '%s\n' "$1" > "$dm/.orca-dev-ops.json" && git -C "$dm" add .orca-dev-ops.json
+  fi && git -C "$dm" commit -q -m cfg || exit 1
+}
+dchange() { awk 'NR == 1 { print "changed"; next } { print }' "$dm/$1" > "$tmp/x" && mv "$tmp/x" "$dm/$1"; }
+# dm_ops <label> <allow|deny>: the master's non-documentation edits in its own main checkout,
+# each beyond what the small-change limits allow.
+dm_ops() {
+  check "$1: master Write src/new.sh" "$2" "$(write "$dm/src/new.sh" "$dm")"
+  check "$1: master Write relative src/rel.sh" "$2" "$(write src/rel.sh "$dm")"
+  check "$1: master Edit 25 lines" "$2" "$(edit_in "$dm" "$dm/src/a.sh" 25)"
+  check "$1: master Edit replace_all" "$2" "$(jq -n --arg cwd "$dm" --arg f "$dm/src/a.sh" '{cwd:$cwd,tool_name:"Edit",tool_input:{file_path:$f,old_string:"line 1",new_string:"x",replace_all:true}}')"
+  check "$1: master NotebookEdit" "$2" "$(jq -n --arg cwd "$dm" --arg f "$dm/src/n.ipynb" '{cwd:$cwd,tool_name:"NotebookEdit",tool_input:{notebook_path:$f,new_source:"x"}}')"
+  dchange src/a.sh; dchange src/b.sh
+  check "$1: master Edit a third changed file" "$2" "$(edit_in "$dm" "$dm/src/c.sh" 1)"
+  git -C "$dm" checkout -q -- src
+}
+dm_ops "direct" allow
+check "direct: master Write README.md" allow "$(write "$dm/README.md" "$dm")"
+check "direct: master Edit .orca-dev-ops.json" allow "$(edit_in "$dm" "$dm/.orca-dev-ops.json" 25)"
+check "direct: master orca worktree create" deny "$(run 'orca worktree create --name cc-x --json' "$dm")"
+msg=$(reason "$(run 'orca worktree create --name cc-x' "$dm")")
+has "direct: create message names workflow.mode" "$msg" "sets workflow.mode \"direct\""
+has "direct: create message says where to implement" "$msg" "implement in this main checkout and commit directly on the base ref"
+has "direct: create message leaves the switch to the user" "$msg" "the user sets workflow.mode to \"worktree\"; do not edit it on your own"
+lacks "direct: create message is not the worktree count" "$msg" "task worktree(s)"
+export ORCA_STUB=fail
+has "direct, Orca down: create denied before counting" "$(reason "$(run 'orca worktree create --name cc-x' "$dm")")" "sets workflow.mode \"direct\""
+unset ORCA_STUB
+check "direct: master orca worktree list" allow "$(run 'orca worktree list --json' "$dm")"
+check "direct: master git worktree add" deny "$(run 'git worktree add ../x' "$dm")"
+check "direct: master git commit" allow "$(run 'git commit -m x' "$dm")"
+check "direct: master Edit into its linked worktree" deny "$(edit_in "$dm" "$dm_child/src/a.sh" 1)"
+check "direct: master Write into its linked worktree" deny "$(write "$dm_child/src/x.sh" "$dm")"
+check "direct: master Write into its linked worktree README" deny "$(write "$dm_child/README.md" "$dm")"
+# Only the master's own main checkout: another repository's coordinator keeps the limits there.
+check "direct: master of another repo Write src" deny "$(write "$dm/src/x.sh" "$repo")"
+check "direct: master of another repo Edit 25 lines" deny "$(edit_in "$repo" "$dm/src/a.sh" 25)"
+# Child sessions in a direct-mode repository: the child rules, unchanged.
+check "direct: child git commit" deny "$(run 'git commit -m x' "$dm_child")"
+check "direct: child orca worktree create" deny "$(run 'orca worktree create --name x' "$dm_child")"
+check "direct: child Write own" allow "$(write "$dm_child/src/new.sh" "$dm_child")"
+check "direct: child Write main checkout" deny "$(write "$dm/src/a.sh" "$dm_child")"
+check "direct: child Write main checkout README" deny "$(write "$dm/README.md" "$dm_child")"
+check "direct: child Write own .orca-dev-ops.json" deny "$(write "$dm_child/.orca-dev-ops.json" "$dm_child")"
+# The same operations in worktree mode, without a file, and with an invalid mode: as before.
+dcfg '{"workflow":{"mode":"worktree"}}'
+dm_ops "worktree mode" deny
+check "worktree mode: create below the limit" allow "$(run 'orca worktree create --name cc-x' "$dm")"
+msg=$(reason "$(write "$dm/src/new.sh" "$dm")")
+has "worktree mode: the limit message" "$msg" "Implementation happens in a child worktree"
+lacks "worktree mode: no direct-mode text" "$msg" "workflow.mode"
+dcfg none
+dm_ops "no settings" deny
+check "no settings: create below the limit" allow "$(run 'orca worktree create --name cc-x' "$dm")"
+dcfg '{"workflow":{"mode":"foo"}}'
+dm_ops "invalid mode" deny
+check "invalid mode: create below the limit" allow "$(run 'orca worktree create --name cc-x' "$dm")"
+msg=$(reason "$(write "$dm/src/new.sh" "$dm")")
+has "invalid mode: deny carries the warning" "$msg" "Settings warning: Ignored $dm/.orca-dev-ops.json"
+has "invalid mode: warning names the key" "$msg" 'workflow.mode must be "worktree" or "direct"'
+check "invalid mode: default small-change limit applies" allow "$(edit_in "$dm" "$dm/src/a.sh" 20)"
+dcfg '{"workflow":{"mode":"direct"},"limits":{"maxWorktrees":1,"smallChangeFiles":0,"smallChangeLines":0}}'
+check "direct with limits 0: master Edit 25 lines" allow "$(edit_in "$dm" "$dm/src/a.sh" 25)"
+has "direct with limits 0: create denied for the mode, not the count" "$(reason "$(run 'orca worktree create --name cc-x' "$dm")")" "sets workflow.mode \"direct\""
+
 # --- slow Orca CLI: the call is cut off at ORCA_CLI_TIMEOUT and the role falls back to git
 reset
 unset ORCA_STUB

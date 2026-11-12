@@ -4,6 +4,7 @@
 
 リポジトリごとに、任意の設定ファイルで orca-dev-ops のワークフローを調整できる。
 ファイルが無ければ、すべてのフックとスクリプトは設定導入前とまったく同じに動く。
+実装はタスク用ワークツリーの子エージェントが行い（ワークフローモード `worktree`）、
 コーディネーターは起動のたびに子のエージェント・モデル・エフォートを質問し、
 タスク用ワークツリーは同時に 3 つまで、メインチェックアウトでのドキュメント以外の
 直接編集は 2 ファイル・20 行まで、コーディネーターの待機は 590000 ms で終わる。
@@ -18,20 +19,51 @@
 ブロックする。
 
 ファイルは他のリポジトリファイルと同様にコミットする。メインチェックアウトでの変更は
-次のフック呼び出しから反映され、再起動は要らない。
+次のフック呼び出しから反映され、再起動は要らない。ただしコーディネーターの
+セッション開始時のコンテキストは開始時に一度だけ書かれるため、変更後は
+`scripts/orca-config.sh show`（後述）で有効な値を確かめる。
+
+## エディターでの補完（`$schema`）
+
+プラグインには、このファイル用の JSON Schema
+[`schemas/orca-dev-ops.schema.json`](../schemas/orca-dev-ops.schema.json)
+（draft 2020-12）が含まれる。すべてのキーについて型・許される値・デフォルト値・
+英語の説明を持ち、どの階層でも未知のキーを拒否し、後述の条件付きの規則
+（`semi-auto`・`auto` には `agent`・`model`・`effort` が要る、`escalate` には
+`semi-auto` か `auto` が要る、`top` には `escalate` が要る）も表現している。
+スキーマとローダーは同じファイルを受け付けるように作られており、テストでは
+有効・不正のサンプルファイル群を両方に通し、どのファイルでも判定が一致することを
+確かめている。
+
+トップレベルの `"$schema"` キーでエディターにスキーマを指定する。
+
+```json
+"$schema": "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json"
+```
+
+`$schema` を読むエディター（VS Code、JetBrains の IDE、JSON の言語サーバーを使う
+その他のエディター）では、編集中にキーの補完、ホバーでの説明表示、不正な値の
+指摘が使える。URL はプラグインの `main` ブランチ上のスキーマなので、常に最新の
+リリースに追従する。バージョンを固定したい場合は、ローカルのコピーを `$schema` に
+指定する。ローダーは空でない文字列であれば `$schema` の値を問わず受け付け、それ以外には
+使わない。有効な設定には含めず、`scripts/orca-config.sh show` も表示しない。
+JSON にはコメントが無く、ローダー（jq）もコメントを拒否するため、その役目は
+スキーマの説明が担う。JSONC は使わない。
 
 ## `/orca-init` による作成
 
-メインチェックアウトに `.orca-dev-ops.json` が無い場合、`/orca-init` はデフォルト値を
-持つすべてのキー（下の表の値）でこのファイルを作成し、`created: <パス>` と表示する。
-`--apply` は不要。リンクされたワークツリーから実行した場合も、ファイルはメイン
-チェックアウトに作成する。`launch.agent`・`launch.model`・`launch.effort` には
-デフォルト値が無いため書き込まない。
+メインチェックアウトに `.orca-dev-ops.json` が無い場合、`/orca-init` は先頭に
+`$schema`、続けてデフォルト値を持つすべてのキー（下の表の値）を書いてこのファイルを
+作成し、`created: <パス>` と表示する。`--apply` は不要。リンクされたワークツリーから
+実行した場合も、ファイルはメインチェックアウトに作成する。`launch.agent`・
+`launch.model`・`launch.effort` にはデフォルト値が無いため書き込まない。
 
 ```json
 {
-  "launch": { "mode": "ask" },
-  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
+  "$schema":  "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json",
+  "workflow": { "mode": "worktree" },
+  "launch":   { "mode": "ask" },
+  "limits":   { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -49,7 +81,10 @@
 
 - `settings: missing key <キー> (default <値>)`: デフォルト値を持つキーのうち、
   ファイルに無いもの。リーフ単位で示す（例: `limits.smallChangeLines`）。書かなくても
-  デフォルト値が適用されるが、追加すると現在の値で固定される。
+  デフォルト値が適用されるが、追加すると現在の値で固定される。`$schema` もこの形で
+  報告する（`settings: missing key $schema (default "<URL>")`）。動作は何も変わらず、
+  上のエディターでの補完が使えるようになるだけである。独自の `$schema` を持つファイルは、
+  不足として報告しない。
 - `settings: missing key <キー> (suggested <値>)`: デフォルト値の無いキーのうち、
   追加してもファイルが有効なままになる推奨値があるもの。現在は 2 つある。
   `launch.escalate` は、ファイルの `launch.mode` が `"semi-auto"` または `"auto"` で、
@@ -72,10 +107,13 @@
 - `--settings=add`: すべての `missing key` を表示された値で追加し、既存の値は
   変えない（`updated: <パス> (added: ...)`、不足が無ければ `up to date: <パス>`）。
   追加した値は作成時の値と同じく固定され、後でデフォルト値が変わっても更新されない。
-  不正なファイルは変更しない。置き換えられるのはリセットだけである。
+  書き換えたファイルは先頭が `$schema` で、`workflow`・`launch`・`limits` の順に並ぶ。
+  ファイル独自の `$schema` はそのまま残す。不正なファイルは変更しない。置き換えられるのは
+  リセットだけである。
 - `--settings=reset`: ファイルを同じ場所の `.orca-dev-ops.json.bak` にコピーしてから、
   新規作成時とまったく同じ内容のデフォルト値を書き込む（`reset: <パス> (backup:
-  <bak>)`）。不正なファイルにも使える。`.bak` ファイルがすでにあると何も変更しない
+  <bak>)`）。プラグインの `$schema` の URL と、`workflow.mode` の `"worktree"` も含む。
+  不正なファイルにも使える。`.bak` ファイルがすでにあると何も変更しない
   （`SETTINGS NOT RESET: ...`）。先にバックアップを移動しておく。
 
 どちらも一時ファイルに書き、結果がフックと同じ検査に通った場合だけファイルを置き換える。
@@ -87,10 +125,12 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 
 ```json
 {
-  "launch": { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
-              "escalate": { "model": "claude-opus-5-5", "effort": "high" },
-              "top":      { "model": "claude-fable-5-2", "effort": "high" } },
-  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
+  "$schema":  "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json",
+  "workflow": { "mode": "worktree" },
+  "launch":   { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
+                "escalate": { "model": "claude-opus-5-5", "effort": "high" },
+                "top":      { "model": "claude-fable-5-2", "effort": "high" } },
+  "limits":   { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -98,9 +138,50 @@ UPDATED: ...` または `SETTINGS NOT RESET: ...`）。どちらも終了コー�
 この例のように `"mode": "auto"` の場合、タスクがエスカレーション基準に当てはまれば、
 コーディネーターは質問せずにエスカレート先の段階で起動し、より厳しい最上位の基準に
 当てはまれば最上位の段階で起動する。先にユーザーに `Model` の質問へ答えてもらうには
-`"semi-auto"` にする。
+`"semi-auto"` にする。`"workflow": { "mode": "direct" }` にすると、代わりに
+コーディネーター自身がメインチェックアウトで実装し、子は起動しない。`launch` と
+`limits` はそのまま有効で、元に戻すと再び適用される。
 
 ## キー
+
+### `$schema`
+
+| キー | 型 | デフォルト | 動作 |
+| --- | --- | --- | --- |
+| `$schema` | 空でない文字列 | プラグインのスキーマの URL（`/orca-init` が書き込む） | エディター向けのみ（「エディターでの補完」を参照）。ローダーは値を使わない |
+
+### `workflow`
+
+| キー | 型 | デフォルト | 動作 |
+| --- | --- | --- | --- |
+| `workflow.mode` | `"worktree"` または `"direct"` | `"worktree"` | 実装をどこで行うか（後述） |
+
+`worktree`（デフォルト）は、この文書のほかの部分と `orca-dev-ops` スキルが説明する
+ワークフローである。子エージェントが Orca のタスク用ワークツリーで実装し、
+コーディネーターは計画・レビュー・統合を担う。コーディネーター自身のメイン
+チェックアウトでの直接編集は、後述の `limits` の範囲に収める。
+
+`direct` は、子ワークツリーを使わず、コーディネーター自身に実装させたいリポジトリ向けで
+ある。
+
+- ロールガードは、コーディネーターが自分のメインチェックアウト内のどのファイルでも、
+  どのツール（Write・Edit・NotebookEdit）でも、どの大きさでも編集することを許可する。
+  小さな変更の上限と Write のブロックはそこでは適用しない。リンクされたワークツリーや、
+  別のリポジトリのメインチェックアウトの編集は従来どおり。
+- コーディネーターは、リポジトリの検証を通してから base ref に直接コミットし、
+  プッシュする（スキルの規則。ガードはコミットを検査しない）。
+- `orca worktree create` はブロックし、拒否メッセージで `workflow.mode` を示す。
+  `git worktree add`・`remove` の直接実行は従来どおりブロックする。
+- コーディネーターのセッションコンテキストは、子ワークツリーについての行の代わりに
+  そのことを伝える。子のセッション、起動ゲート、子のルールは変わらない。
+
+`launch` と `limits` は `direct` と一緒でも有効で、元に戻すときのために値を保つ。
+モードを変えるのはユーザーだけで、`workflow.mode` を編集して切り替える。
+コーディネーターが自分で編集することはない（ガードの拒否メッセージもそう伝える）。
+`direct` に切り替える前に、既存のタスク用ワークツリーを統合して削除しておく。残った
+ワークツリーは子のルールのままで、コーディネーターはそこを編集できない。切り替えても
+セッション開始時のコンテキストは更新されないため、`scripts/orca-config.sh show` で
+有効なモードを確かめる。
 
 ### `launch`
 
@@ -222,7 +303,9 @@ Orca が応答しない場合や、途中で打ち切られた一覧を返した
 適用され、既存の未コミットの変更と未追跡ファイルも数に含める。ドキュメント
 （`*.md`、`docs/`、`references/`、`.claude/`）は数えず、それ以外のファイルへの
 Write は引き続きブロックする。`0` にするとドキュメント以外の直接編集をすべて
-ブロックする。
+ブロックする。`workflow.mode` が `"direct"` の場合、コーディネーター自身の
+メインチェックアウトにはこれらの上限をどれも適用せず、`orca worktree create` は
+数える前にブロックする。
 
 ### `monitor`（非推奨。1.12.0 から無視される）
 
@@ -251,6 +334,9 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
   オブジェクトでない。
 - 上に挙げていないキーがある（どの階層でも。非推奨の `monitor` セクションは上に挙げており、受け付ける）。
 - 値の型が違う、または範囲外である。
+- `$schema` が空でない文字列でない（`$schema must be a non-empty string`）。
+- `workflow` がオブジェクトでない、または `workflow.mode` が `"worktree"` でも
+  `"direct"` でもない。
 - `launch.mode` が `"semi-auto"` または `"auto"` なのに `launch.agent`・`launch.model`・
   `launch.effort` が揃っていない。
 - `launch.escalate` が `model` と `effort` だけを持つオブジェクトでない、どちらかの値が
@@ -260,12 +346,30 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
   空白を含まない空でない文字列でない、または `launch.escalate` が無い
   （`launch.top is only valid together with escalate`）。
 
-不正なファイルは全体を無視し、そこからは何も採用しない。最も厳しい動作である
-launch mode `ask` を含め、組み込みのデフォルト値を使う。問題は次の場所で報告する。
+不正なファイルは全体を無視し、そこからは何も採用しない。最も厳しい動作である、
+上限付きのワークフローモード `worktree` と launch mode `ask` を含め、組み込みの
+デフォルト値を使う。問題は次の場所で報告する。
 
 - 開始時のコーディネーターのセッションコンテキスト。
 - 起動ゲートとロールガードのすべての拒否メッセージ。
 - `scripts/orca-config.sh show`（終了コード 3）と `/orca-init`。
+
+## 1.15.0 への移行（`workflow`、`$schema`）
+
+1.15.0 で `workflow` セクションと `$schema` キーが加わった。どちらも無いファイルの動作は
+従来とまったく同じ（ワークフローモード `worktree`）。`/orca-init` はこれらを不足している
+キーとして報告し、`--settings=add` で追加できる。
+
+- プラグインを更新したら、プラグインを使うすべてのリポジトリで `/orca-init` を
+  実行し直す。設定の報告に加えて、Codex の起動ゲートが使うローダーのコピー
+  `.codex/hooks/orca-lib.sh` も更新される。古いコピーは `workflow` や `$schema` を
+  持つファイルを不正とみなすため、Codex のコーディネーターは launch mode `ask` に
+  戻ってしまう。
+- 別のデバイスにある古いプラグインも同じで、`workflow` と `$schema` を未知のキーとして
+  扱い、ファイル全体を無視して組み込みのデフォルト値（デフォルトの上限付きの
+  ワークツリーモードと launch mode `ask`）を使い、設定の警告を出す。どちらかのキーを
+  追加する前、または `--settings=add` を実行する前に、そのリポジトリで作業する
+  すべてのデバイスのプラグインを更新しておく。
 
 ## 設定できないもの
 
@@ -289,7 +393,8 @@ sh scripts/orca-config.sh show [<path>]
 ```
 
 プラグインから実行する（Claude では `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-config.sh" show`）。
-有効な設定（ファイルをデフォルト値に重ねたもの）を JSON として標準出力に出し、
+有効な設定（ファイルをデフォルト値に重ねたもの。`workflow.mode` を含み、`$schema` と
+`monitor` は含まない）を JSON として標準出力に出し、
 標準エラー出力に読み込み元のファイルと、不正な場合はその理由を、有効なファイルでは設定の警告（`monitor` の非推奨通知）を出す。終了コードは、
 0 が正常またはファイルなし、3 が不正（デフォルト値を出力）、64 が使い方の誤り、
 65 が git リポジトリでない場合。コーディネーターはセッションごとに一度、最初の起動の

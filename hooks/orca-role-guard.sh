@@ -1,5 +1,7 @@
 #!/bin/sh
 # PreToolUse guard: master plans, reviews, commits and pushes; child worktrees only implement.
+# In workflow mode direct (.orca-dev-ops.json), the master also implements in its own main
+# checkout without edit limits and creates no task worktrees; the child rules do not change.
 # Misoperation prevention by string and path matching, not a sandbox. It applies to Claude
 # sessions only; Codex is limited by its own sandbox flags and the AGENTS.md rules.
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/orca-lib.sh"
@@ -124,12 +126,14 @@ Bash)
   fi
   if [ "$role" = master ]; then
     git_sub 'worktree[[:space:]]+(add|remove|prune)' && deny "Use the orca CLI (orca worktree create / orca worktree rm) instead of raw git worktree commands."
-    # orca worktree create: at most limits.maxWorktrees task worktrees; fails closed when Orca
-    # cannot give the complete list of this repository's worktrees.
+    # orca worktree create: none in workflow mode direct; otherwise at most limits.maxWorktrees
+    # task worktrees, failing closed when Orca cannot give the complete list of this
+    # repository's worktrees.
     commands | awk "BEGIN { FS = sprintf(\"%c\", 31) } { $skip_prefix"'
       if (w == "orca" && $(i + 1) == "worktree" && $(i + 2) == "create") { found = 1; exit } }
       END { exit !found }' || exit 0
     orca_config_load "$own"
+    [ "$(orca_config .workflow.mode)" = direct ] && deny "This repository's $ORCA_CONFIG_FILE sets workflow.mode \"direct\": implement in this main checkout and commit directly on the base ref. To use child worktrees, the user sets workflow.mode to \"worktree\"; do not edit it on your own.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}"
     max=$(orca_config .limits.maxWorktrees)
     main=$(orca_main_checkout "$own")
     n=$(cd "$own" 2>/dev/null && orca_cli worktree list --repo "path:${main:-$own}" --json 2>/dev/null \
@@ -229,6 +233,9 @@ Edit|Write|NotebookEdit)
   # Documentation: any tool, any size.
   case "$rel" in .claude/*|references/*|docs/*|*.md) exit 0 ;; esac
   orca_config_load "$repo"
+  # workflow.mode "direct": the master implements in its own main checkout, any tool, any size.
+  # Another repository's main checkout keeps the limits below.
+  [ "$ftop" = "$own" ] && [ "$(orca_config .workflow.mode)" = direct ] && exit 0
   maxf=$(orca_config .limits.smallChangeFiles) maxl=$(orca_config .limits.smallChangeLines)
   [ "$maxf" = 1 ] && files=file || files=files
   [ "$maxl" = 1 ] && lines=line || lines=lines

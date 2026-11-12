@@ -31,6 +31,13 @@ only the sections the task needs (the full orchestration guide is about
 | Commit, rebase, merge, push | master | Against the base ref (see Invariants) |
 | Clean up | master | See "Review, integration, cleanup" |
 
+This table is workflow mode `worktree`, the default. In workflow mode
+`direct` (`workflow.mode` in `.orca-dev-ops.json`, see "Repository
+settings"), the master plans with the user, implements and tests in its own
+main checkout, runs the repository's required verification, commits directly
+on the base ref, and pushes; no child worktree is created, so choosing an
+agent, implementing in a child, and controlling the child do not apply.
+
 The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude sessions:
 - `orca-role-context.sh` (SessionStart) tells each session whether it is master or child.
 - `orca-role-guard.sh` (PreToolUse) applies only inside a checkout that opted
@@ -41,7 +48,11 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   guessing. In the master checkout it limits direct Write/Edit to the "Small
   changes" limits below, blocks `orca worktree create` at the "Limits"
   worktree count (and when the count cannot be determined), and blocks
-  editing child worktrees and raw `git worktree add/remove`. In both roles it
+  editing child worktrees and raw `git worktree add/remove`. In workflow mode
+  `direct` it allows any Write/Edit/NotebookEdit of any size in the master's
+  own main checkout and blocks every `orca worktree create` (before counting);
+  editing linked worktrees and raw `git worktree add/remove` stay blocked, and
+  it does not check commits. In both roles it
   blocks `orca orchestration` calls with the Orca attestation variables
   removed or reassigned (every call runs as the calling terminal). In child
   sessions it blocks editing `.orca-dev-ops.json`, commit/push/merge/rebase,
@@ -98,15 +109,23 @@ its missing keys reported; the user chooses whether to add them
 ## Repository settings
 
 A repository can tune this workflow with an optional `.orca-dev-ops.json` at
-its top level (full reference: `docs/config.md` in the plugin): `launch`
+its top level (full reference: `docs/config.md` in the plugin): `$schema`
+(any non-empty string, only for editors; initialization writes the plugin's
+`schemas/orca-dev-ops.schema.json` URL), `workflow` (`mode` `worktree` or
+`direct`), `launch`
 (mode `ask`, `semi-auto`, or `auto`, plus `agent`, `model`, `effort`, and in
 `semi-auto` or `auto` an optional `escalate` with `model` and `effort`, and,
 only together with `escalate`, an optional `top` of the same shape), `limits`
 (`maxWorktrees`, `smallChangeFiles`, `smallChangeLines`). Without the file,
 the built-in defaults apply, which are the behavior this skill describes
-(launch mode `ask`, 3 worktrees, 2 files and 20 lines); initialization writes
+(workflow mode `worktree`, launch mode `ask`, 3 worktrees, 2 files and 20
+lines); initialization writes
 exactly these values when it creates the file, and they stay as written when
-a later plugin version changes a default. The hooks and scripts read it from
+a later plugin version changes a default. `workflow.mode` `direct` means the
+master implements in the main checkout with no edit limits and commits
+directly on the base ref (see "Small changes"); `launch` and `limits` stay
+valid with it, for switching back. Before switching to `direct`, integrate
+and remove the existing task worktrees. The hooks and scripts read it from
 the main checkout only, never from a child worktree. An invalid file is
 ignored as a whole (defaults, launch mode `ask`) with a warning in the session
 context and in every deny. A deprecated section of an earlier version is
@@ -118,10 +137,14 @@ Once per session, before the first launch, run the plugin's
 "Invariants") in the repository: it prints the effective settings, and stderr
 names the source file and any validation error (exit 3 when invalid). Report
 an invalid file to the user. The settings belong to the user: never edit
-`.orca-dev-ops.json` to get past a limit or the launch gate, and never add
+`.orca-dev-ops.json` to get past a limit or the launch gate, change
+`workflow.mode` or any other key only when the user asks for it, and never add
 keys for the invariants below (approval, sandbox, and network flags,
 `--dangerously-skip-permissions`, trust prompts, the base ref, fast-forward
-integration, `--force`); the loader rejects unknown keys.
+integration, `--force`); the loader rejects unknown keys. The session-start
+context is written once and does not follow a later change: after a switch of
+`workflow.mode` (or any other change), run `scripts/orca-config.sh show` again
+and follow the mode it prints.
 
 ## Invariants
 
@@ -138,6 +161,10 @@ integration, `--force`); the loader rejects unknown keys.
 - One task = one worktree = one branch, created from the base ref, always
   through the orca CLI.
 - The master session does not implement or read full agent logs.
+- Workflow mode `direct` replaces the two rules above: the master implements
+  in its own main checkout and commits directly on the base ref (see "Small
+  changes"); no task worktree or task branch is created. The other
+  invariants still hold.
 
 ## Limits
 
@@ -146,6 +173,9 @@ integration, `--force`); the loader rejects unknown keys.
   at the limit, and also when `orca worktree list` cannot give the count.
 - Remove a worktree promptly once the removal conditions in "Review,
   integration, cleanup" hold.
+- Workflow mode `direct`: no task worktrees at all; the guard blocks every
+  `orca worktree create` and names `workflow.mode`. Do not work around it;
+  only the user switches the mode back to `worktree`.
 
 ## Starting a child
 
@@ -531,6 +561,14 @@ commit, switch back, `git merge --ff-only <topic>`, push, delete the branch).
 Anything beyond the limits goes through a child worktree.
 
 Every direct edit spends master context. When a change grows past the limits, stop and hand the rest to a child worktree instead of working around the guard.
+
+Workflow mode `direct` (see "Repository settings"): the limits above do not
+apply in the master's own main checkout; any file, any tool, any size.
+Implement there, run the repository's required verification, then commit
+directly on the base ref and push; no task branch and no child worktree. Keep
+the review discipline of "Review, integration, cleanup" for your own
+changes (explicit paths, no blanket `git add -A`). The mode changes nothing
+else: never `--force`, and stop and ask when the base ref is unknown.
 
 ## Token discipline
 

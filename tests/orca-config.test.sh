@@ -7,7 +7,7 @@ repo="$tmp/dev/my repo"; mkdir -p "$repo"; new_repo "$repo"
 child="$tmp/work trees/task one"; mkdir -p "$tmp/work trees"
 git -C "$repo" worktree add -q -b task-one "$child" || exit 1
 cfg="$repo/.orca-dev-ops.json"
-defaults='{"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
+defaults='{"workflow":{"mode":"worktree"},"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
 
 # show [<path>]: runs `orca-config.sh show`, stdout in $out (compact JSON), stderr in $err, exit code in $rc.
 show() {
@@ -33,18 +33,45 @@ has "valid: stderr names the source" "$err" "source: $cfg"
 
 printf '{"limits":{"maxWorktrees":5}}\n' > "$cfg"; show "$repo"
 result "partial: exit 0" 0 "$rc"
-result "partial: merged" '{"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
+result "partial: merged" '{"workflow":{"mode":"worktree"},"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
 lacks "partial: no warning" "$err" "warning"
 
-full='{"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"},"limits":{"maxWorktrees":1,"smallChangeFiles":0,"smallChangeLines":0}}'
+full='{"workflow":{"mode":"direct"},"launch":{"mode":"auto","agent":"codex","model":"gpt-sol","effort":"xhigh"},"limits":{"maxWorktrees":1,"smallChangeFiles":0,"smallChangeLines":0}}'
 printf '%s\n' "$full" > "$cfg"; show "$repo"
 result "full: exit 0" 0 "$rc"
 result "full: every key taken" "$full" "$out"
 
+# --- workflow.mode: "worktree" (the default) or "direct"
+printf '{"workflow":{"mode":"direct"}}\n' > "$cfg"; show "$repo"
+result "workflow direct: exit 0" 0 "$rc"
+result "workflow direct: taken" direct "$(printf '%s' "$out" | jq -r .workflow.mode)"
+result "workflow direct: limits and launch keep their defaults" '{"mode":"ask"}|{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}' \
+  "$(printf '%s' "$out" | jq -c .launch)|$(printf '%s' "$out" | jq -c .limits)"
+printf '{"workflow":{"mode":"worktree"}}\n' > "$cfg"; show "$repo"
+result "workflow worktree: exit 0" 0 "$rc"
+result "workflow worktree: same as the defaults" "$defaults" "$out"
+printf '{"workflow":{}}\n' > "$cfg"; show "$repo"
+result "empty workflow: exit 0" 0 "$rc"
+result "empty workflow: mode worktree" worktree "$(printf '%s' "$out" | jq -r .workflow.mode)"
+# launch and limits stay valid next to "direct" (kept for switching back).
+printf '%s\n' '{"workflow":{"mode":"direct"},"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium"},"limits":{"maxWorktrees":1}}' > "$cfg"; show "$repo"
+result "workflow direct with launch and limits: exit 0" 0 "$rc"
+result "workflow direct with launch and limits: taken" 'direct|auto|1' "$(printf '%s' "$out" | jq -r '[.workflow.mode, .launch.mode, .limits.maxWorktrees] | map(tostring) | join("|")')"
+
+# --- $schema: accepted as a non-empty string (for editors), never part of the effective settings
+printf '%s\n' '{"$schema":"https://example.com/any.schema.json","workflow":{"mode":"direct"}}' > "$cfg"; show "$repo"
+result "\$schema: exit 0" 0 "$rc"
+result "\$schema: left out of the effective settings" '{"workflow":{"mode":"direct"},"launch":{"mode":"ask"},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
+lacks "\$schema: not printed" "$(cat "$tmp/out")" 'schema'
+lacks "\$schema: no warning" "$err" "warning"
+printf '%s\n' '{"$schema":"not a URL, still a string"}' > "$cfg"; show "$repo"
+result "\$schema any non-empty string: exit 0" 0 "$rc"
+result "\$schema any non-empty string: defaults" "$defaults" "$out"
+
 # --- deprecated monitor (ignored since 1.12.0): still valid, left out, with a warning
 printf '{"limits":{"maxWorktrees":5},"monitor":{"wakeOnStatus":true,"timeoutMs":60000}}\n' > "$cfg"; show "$repo"
 result "monitor: still valid, exit 0" 0 "$rc"
-result "monitor: left out of the effective settings" '{"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
+result "monitor: left out of the effective settings" '{"workflow":{"mode":"worktree"},"launch":{"mode":"ask"},"limits":{"maxWorktrees":5,"smallChangeFiles":2,"smallChangeLines":20}}' "$out"
 has "monitor: deprecation warning on stderr" "$err" "orca-config: warning: monitor is ignored since 1.12.0; remove it from $cfg."
 has "monitor: source still named" "$err" "source: $cfg"
 printf '{"monitor":{}}\n' > "$cfg"; show "$repo"
@@ -147,6 +174,18 @@ invalid "string smallChangeLines" '{"limits":{"smallChangeLines":"20"}}' "limits
 invalid "wakeOnStatus string" '{"monitor":{"wakeOnStatus":"true"}}' "monitor.wakeOnStatus must be true or false"
 invalid "timeoutMs 0" '{"monitor":{"timeoutMs":0}}' "monitor.timeoutMs must be an integer > 0"
 invalid "several problems" '{"x":1,"limits":{"maxWorktrees":0}}' "unknown key x; limits.maxWorktrees"
+invalid "bad workflow mode" '{"workflow":{"mode":"foo"}}' 'workflow.mode must be "worktree" or "direct"'
+invalid "workflow mode with different case" '{"workflow":{"mode":"Direct"}}' 'workflow.mode must be "worktree" or "direct"'
+invalid "numeric workflow mode" '{"workflow":{"mode":1}}' 'workflow.mode must be "worktree" or "direct"'
+invalid "null workflow mode" '{"workflow":{"mode":null}}' 'workflow.mode must be "worktree" or "direct"'
+invalid "unknown key under workflow" '{"workflow":{"mode":"direct","commitTo":"main"}}' "unknown key workflow.commitTo"
+invalid "workflow not an object" '{"workflow":"direct"}' "workflow must be an object"
+invalid "mode outside workflow" '{"mode":"direct"}' "unknown key mode"
+invalid "numeric \$schema" '{"$schema":1}' '$schema must be a non-empty string'
+invalid "empty \$schema" '{"$schema":""}' '$schema must be a non-empty string'
+invalid "null \$schema" '{"$schema":null}' '$schema must be a non-empty string'
+invalid "object \$schema" '{"$schema":{"$ref":"x"}}' '$schema must be a non-empty string'
+invalid "\$schema nested in a section" '{"workflow":{"$schema":"x"}}' 'unknown key workflow.$schema'
 has "invalid: stderr says the defaults apply" "$err" "built-in defaults apply"
 rm -f "$cfg"; mkdir "$cfg"; show "$repo"
 result "invalid directory: exit 3" 3 "$rc"

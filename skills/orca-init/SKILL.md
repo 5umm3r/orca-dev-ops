@@ -136,7 +136,10 @@ shell variables may not persist across tool calls.
    with `--settings=add` or `--settings=reset` (see `docs/config.md` in the
    plugin).
    - `created: <path>` — the file was created in the main checkout with the
-     built-in defaults. Tell the user it can be committed and edited, and
+     built-in defaults (`workflow.mode` `"worktree"`, launch mode `ask`, the
+     limits), preceded by a `$schema` line that points editors at the
+     plugin's JSON Schema for completion and descriptions. Tell the user it
+     can be committed and edited, and
      that the written values stay as they are when a later plugin version
      changes a default (delete a key to follow the plugin's default).
    - `SETTINGS NOT CREATED: ...` (stderr, exit code unchanged) — the file
@@ -147,7 +150,12 @@ shell variables may not persist across tool calls.
    - `settings: ... is valid` — followed by these report lines; the file was
      not changed:
      - `settings: missing key <key> (default <value>)` — a default the file
-       lacks (a key a newer plugin added, or one deleted by hand).
+       lacks (a key a newer plugin added, or one deleted by hand). From
+       1.15.0 this includes `$schema` (the schema URL; editor support only,
+       no behavior change) and `workflow.mode` (default `"worktree"`, the
+       current behavior). Before adding either, tell the user that an older
+       plugin on another device ignores a file that has them (see the
+       migration note in `docs/config.md`).
      - `settings: missing key <key> (suggested <value>)` — an opt-in key with
        a value that fits the file (`launch.escalate` when the file has mode
        `semi-auto` or `auto` and agent `claude`; `launch.top` under the same
@@ -177,14 +185,16 @@ shell variables may not persist across tool calls.
      `--settings=reset` only when the user explicitly asks for it.
    - `updated: <path> (added: ...)` / `up to date: <path>` — `--settings=add`
      added the listed keys, or nothing was missing.
-   - `reset: <path> (backup: <bak>)` — the file now holds the defaults; the
+   - `reset: <path> (backup: <bak>)` — the file now holds the defaults,
+     with the plugin's `$schema` first and `workflow.mode` `"worktree"`; the
      old one is in `<bak>`. Tell the user they can delete the backup once
      they no longer need it.
    - `SETTINGS NOT UPDATED: ...` / `SETTINGS NOT RESET: ...` (stderr, exit code
      unchanged) — the file was left unchanged. Report the reason; when the
      `.bak` already exists, the user moves it away before a reset.
    - `INVALID SETTINGS: ...` (stderr, exit code unchanged) — the hooks ignore
-     the file and use the defaults (launch mode `ask`). Report the reason to
+     the file and use the defaults (workflow mode `worktree` with the limits,
+     launch mode `ask`). Report the reason to
      the user and tell them to fix the file by hand, or offer
      `--settings=reset` (it keeps a `.bak` backup); `--settings=add` does not
      change an invalid file.

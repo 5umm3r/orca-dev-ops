@@ -74,6 +74,45 @@ has "master, invalid: launch mode ask" "$m" "Launch mode: ask"
 has "master, invalid: warning" "$m" "Settings warning: Ignored $repo/.orca-dev-ops.json"
 rm -f "$repo/.orca-dev-ops.json"
 
+# workflow.mode: "worktree" (the default) keeps the child-worktree lines; "direct" replaces them.
+wt_line="- Implementation runs in child task worktrees, not in this checkout."
+limits_line="- The PreToolUse guard enforces the direct-edit limits of this checkout."
+# worktree_text <label> <context>: the worktree-mode lines, and no direct-mode text.
+worktree_text() {
+  has "$1: child task worktrees" "$2" "$wt_line"
+  has "$1: direct-edit limits" "$2" "$limits_line"
+  lacks "$1: no direct-mode text" "$2" "implement in this main checkout"
+}
+worktree_text "master, no settings" "$(ctx "$repo")"
+printf '%s\n' '{"workflow":{"mode":"worktree"}}' > "$repo/.orca-dev-ops.json"
+worktree_text "master, worktree mode" "$(ctx "$repo")"
+printf '%s\n' '{"workflow":{"mode":"direct"}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, direct: workflow mode named" "$m" "Workflow mode direct"
+has "master, direct: implement here without limits" "$m" "implement in this main checkout, with no edit limits"
+has "master, direct: commit on the base ref after verification" "$m" "after the repository's verification, commit directly on the base ref and push"
+has "master, direct: no child worktrees" "$m" "No child worktrees (\`orca worktree create\` is blocked)"
+has "master, direct: switching back is the user's edit" "$m" "switching back is the user's edit of workflow.mode"
+lacks "master, direct: no child task worktrees line" "$m" "$wt_line"
+lacks "master, direct: no direct-edit limits line" "$m" "$limits_line"
+has "master, direct: base ref line kept" "$m" "- The base ref is what \`sh \"$root/scripts/orca-base-ref.sh\"\` prints"
+has "master, direct: launch mode line kept" "$m" "Launch mode: ask"
+lacks "master, direct: no warning" "$m" "Settings warning"
+result "master, direct: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
+printf '%s\n' '{"workflow":{"mode":"direct"},"launch":{"mode":"auto","agent":"claude","model":"claude-sonnet-5-5","effort":"medium","escalate":{"model":"claude-opus-5-5","effort":"high"},"top":{"model":"claude-fable-5-2","effort":"high"}}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+has "master, direct with the longest launch line: direct text" "$m" "implement in this main checkout"
+has "master, direct with the longest launch line: launch line" "$m" "each chosen by the coordinator per the escalation criteria, no question)"
+result "master, direct with the longest launch line: a few lines" yes "$([ "$(printf '%s\n' "$m" | wc -l)" -le 6 ] && [ ${#m} -le 900 ] && echo yes || echo no)"
+c=$(ctx "$child")
+has "child, direct: child text unchanged" "$c" "Implement the plan the coordinator sent and leave all changes uncommitted."
+lacks "child, direct: no direct-mode text" "$c" "implement in this main checkout"
+printf '%s\n' '{"workflow":{"mode":"foo"}}' > "$repo/.orca-dev-ops.json"
+m=$(ctx "$repo")
+worktree_text "master, invalid mode" "$m"
+has "master, invalid mode: warning" "$m" "Settings warning: Ignored $repo/.orca-dev-ops.json"
+rm -f "$repo/.orca-dev-ops.json"
+
 c=$(ctx "$child")
 has "child: uncommitted" "$c" "uncommitted"
 has "child: orca orchestration" "$c" "orca orchestration"

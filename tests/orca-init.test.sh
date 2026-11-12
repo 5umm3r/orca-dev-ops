@@ -272,17 +272,23 @@ result "settings absent: exit 0" 0 "$rc"
 result "settings absent: created message" 1 "$(count "^created: $r/\\.orca-dev-ops\\.json$")"
 cat > "$tmp/settings-want" <<'JSON'
 {
-  "launch": { "mode": "ask" },
-  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
+  "$schema":  "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json",
+  "workflow": { "mode": "worktree" },
+  "launch":   { "mode": "ask" },
+  "limits":   { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 JSON
 result "settings absent: created with every default" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-want" && echo match || echo diff)"
-result "settings absent: equals the built-in defaults" true "$(. "$root/hooks/orca-lib.sh"; jq --argjson d "$ORCA_CONFIG_DEFAULTS" '. == $d' "$r/.orca-dev-ops.json")"
+result "settings absent: \$schema is the first key" '$schema' "$(jq -r 'keys_unsorted[0]' "$r/.orca-dev-ops.json")"
+result "settings absent: workflow mode worktree" worktree "$(jq -r '.workflow.mode' "$r/.orca-dev-ops.json")"
+result "settings absent: equals the built-in defaults plus \$schema" true "$(. "$root/hooks/orca-lib.sh"; jq --argjson d "$ORCA_CONFIG_DEFAULTS" 'del(.["$schema"]) == $d' "$r/.orca-dev-ops.json")"
 result "settings absent: created file is valid" valid "$(config_state "$r")"
 cp "$r/.orca-dev-ops.json" "$tmp/settings-before"
 run "$r"
 result "settings created, rerun: reported valid" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
 result "settings created, rerun: not created again" 0 "$(count '^created: .*\.orca-dev-ops\.json')"
+result "settings created, rerun: no missing key" 0 "$(count '^settings: missing key')"
+result "settings created, rerun: nothing a reset would change" 0 "$(count '^settings: reset would change')"
 result "settings created, rerun: file untouched" match "$(cmp -s "$r/.orca-dev-ops.json" "$tmp/settings-before" && echo match || echo diff)"
 printf '%s\n' '{"limits":{"maxWorktrees":2}}' > "$r/.orca-dev-ops.json"
 cp "$r/.orca-dev-ops.json" "$tmp/settings-before"
@@ -338,7 +344,9 @@ run "$r"
 result "settings report: exit 0" 0 "$rc"
 result "settings report: valid line" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
 result "settings report: missing default key" 1 "$(count '^settings: missing key limits\.smallChangeLines (default 20)$')"
-result "settings report: every missing default" 2 "$(count '^settings: missing key .* (default ')"
+result "settings report: missing \$schema" 1 "$(count '^settings: missing key \$schema (default "https://raw\.githubusercontent\.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops\.schema\.json")$')"
+result "settings report: missing workflow.mode" 1 "$(count '^settings: missing key workflow\.mode (default "worktree")$')"
+result "settings report: every missing default" 4 "$(count '^settings: missing key .* (default ')"
 result "settings report: applicable suggestion" 1 "$(count '^settings: missing key launch\.escalate (suggested {"model":"claude-opus-5-5","effort":"high"})$')"
 result "settings report: no top suggestion before escalate is set" 0 "$(count '^settings: missing key launch\.top')"
 result "settings report: top available before escalate is set" 1 "$(count '^settings: available key launch\.top (no default; set by hand, see docs/config\.md)$')"
@@ -352,9 +360,12 @@ result "settings report: rules step still runs" 1 "$(count '^created: \.claude/C
 
 run "$r" --settings=add
 result "settings add: exit 0" 0 "$rc"
-result "settings add: reported" 1 "$(count "^updated: $r/\\.orca-dev-ops\\.json (added: limits\\.smallChangeFiles, limits\\.smallChangeLines, launch\\.escalate)$")"
+result "settings add: reported" 1 "$(count "^updated: $r/\\.orca-dev-ops\\.json (added: \\\$schema, workflow\\.mode, limits\\.smallChangeFiles, limits\\.smallChangeLines, launch\\.escalate)$")"
 result "settings add: existing values kept" '2|auto|claude|claude-sonnet-5-5|medium' "$(jq -r '[.limits.maxWorktrees, .launch.mode, .launch.agent, .launch.model, .launch.effort] | map(tostring) | join("|")' "$cfg")"
-result "settings add: missing keys added" '2|20|claude-opus-5-5|high' "$(jq -r '[.limits.smallChangeFiles, .limits.smallChangeLines, .launch.escalate.model, .launch.escalate.effort] | map(tostring) | join("|")' "$cfg")"
+result "settings add: missing keys added" '2|20|claude-opus-5-5|high|worktree' "$(jq -r '[.limits.smallChangeFiles, .limits.smallChangeLines, .launch.escalate.model, .launch.escalate.effort, .workflow.mode] | map(tostring) | join("|")' "$cfg")"
+result "settings add: \$schema added" 'https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json' "$(jq -r '.["$schema"]' "$cfg")"
+result "settings add: \$schema first in the file" '"$schema":' "$(sed -n 2p "$cfg" | awk '{ print $1 }')"
+result "settings add: section order" '$schema workflow launch limits' "$(jq -r 'keys_unsorted | join(" ")' "$cfg")"
 result "settings add: no monitor written" false "$(jq 'has("monitor")' "$cfg")"
 result "settings add: result is valid" '' "$(cfg_check "$cfg")"
 result "settings add: no backup" no "$([ -e "$cfg.bak" ] && echo yes || echo no)"
@@ -397,6 +408,28 @@ result "settings monitor reset: monitor removed" false "$(jq 'has("monitor")' "$
 result "settings monitor reset: same as a created file" match "$(cmp -s "$cfg" "$tmp/settings-want" && echo match || echo diff)"
 run "$r"
 result "settings monitor reset: no warning afterwards" 0 "$(count '^settings: warning:')"
+
+# A $schema of the user's own and workflow mode direct: kept by add, reported and replaced by reset.
+r="$tmp/settings-schema"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
+printf '%s\n' '{"limits":{"maxWorktrees":2},"workflow":{"mode":"direct"},"$schema":"./my.schema.json"}' > "$cfg"
+cp "$cfg" "$tmp/settings-before"
+run "$r"
+result "settings own \$schema: reported valid" 1 "$(count '^settings: .*\.orca-dev-ops\.json is valid$')"
+result "settings own \$schema: not a missing key" 0 "$(count '^settings: missing key \$schema')"
+result "settings own \$schema: workflow.mode not missing" 0 "$(count '^settings: missing key workflow')"
+result "settings own \$schema: reset would change it" 1 "$(count '^settings: reset would change \$schema ("\./my\.schema\.json" -> "https://raw\.githubusercontent\.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops\.schema\.json")$')"
+result "settings direct: reset would change workflow.mode" 1 "$(count '^settings: reset would change workflow\.mode ("direct" -> "worktree")$')"
+result "settings own \$schema: file unchanged" match "$(cmp -s "$cfg" "$tmp/settings-before" && echo match || echo diff)"
+run "$r" --settings=add
+result "settings own \$schema add: reported" 1 "$(count "^updated: $r/\\.orca-dev-ops\\.json (added: launch\\.mode, limits\\.smallChangeFiles, limits\\.smallChangeLines)$")"
+result "settings own \$schema add: value kept" './my.schema.json' "$(jq -r '.["$schema"]' "$cfg")"
+result "settings own \$schema add: direct kept" direct "$(jq -r '.workflow.mode' "$cfg")"
+result "settings own \$schema add: moved first" '$schema workflow launch limits' "$(jq -r 'keys_unsorted | join(" ")' "$cfg")"
+result "settings own \$schema add: result is valid" '' "$(cfg_check "$cfg")"
+run "$r" --settings=reset
+result "settings own \$schema reset: reported" 1 "$(count "^reset: $r/\\.orca-dev-ops\\.json (backup: ")"
+result "settings own \$schema reset: same as a created file" match "$(cmp -s "$cfg" "$tmp/settings-want" && echo match || echo diff)"
+result "settings own \$schema reset: backup keeps the value" './my.schema.json' "$(jq -r '.["$schema"]' "$cfg.bak")"
 
 r="$tmp/settings-ask"; new_repo "$r"; cfg="$r/.orca-dev-ops.json"
 printf '%s\n' '{"launch":{"mode":"ask","agent":"claude"}}' > "$cfg"

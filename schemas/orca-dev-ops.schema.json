@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json",
+  "title": "orca-dev-ops repository settings (.orca-dev-ops.json)",
+  "description": "Optional per-repository settings of the orca-dev-ops plugin, read from the top level of the main checkout only (a copy in a linked worktree is ignored). Every key is optional; a missing key takes its default, and {} is the same as no file. An invalid file is ignored as a whole and the built-in defaults apply: workflow mode \"worktree\", the default limits, and launch mode \"ask\". The settings belong to the user. Reference: docs/config.md in the plugin.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The JSON Schema that editors use for completion, allowed values, defaults, and these descriptions. Any non-empty string; the plugin ignores the value. /orca-init writes the URL of this schema."
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where implementation happens: in child task worktrees or directly in the main checkout.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["worktree", "direct"],
+          "default": "worktree",
+          "description": "\"worktree\" (default): child agents implement in Orca task worktrees; the coordinator's direct edits in the main checkout are limited by limits.smallChangeFiles and limits.smallChangeLines, and orca worktree create is limited by limits.maxWorktrees. \"direct\": the coordinator implements in its main checkout with no edit limits and, after the repository's verification, commits directly on the base ref and pushes; orca worktree create is blocked. launch and limits stay valid with \"direct\" and apply again after switching back. Changed only by the user."
+        }
+      }
+    },
+    "launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the coordinator chooses the child agent, model, and effort. mode \"semi-auto\" or \"auto\" requires agent, model, and effort; escalate requires mode \"semi-auto\" or \"auto\"; top requires escalate.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["ask", "semi-auto", "auto"],
+          "default": "ask",
+          "description": "\"ask\" (default): before every child launch the coordinator asks one question each with header Agent, Model, and Effort, and the launch gate blocks the launch until they are answered. \"semi-auto\": no questions for the default tier; the launch gate allows only the configured agent, model, and effort, and the escalate and top tiers after an answered Model question. \"auto\": the same configured values without any question; the coordinator picks the escalate or top tier by the escalation criteria."
+        },
+        "agent": {
+          "type": "string",
+          "enum": ["claude", "codex"],
+          "description": "The child agent: \"claude\" or \"codex\". No default. Required with mode \"semi-auto\" or \"auto\"; with \"ask\" it is only the recommended option of the Agent question."
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "The agent's own model value (Claude --model, Codex -m / --model), compared as written; a non-empty string without whitespace. No default. Required with mode \"semi-auto\" or \"auto\"; with \"ask\" it is only the recommended option of the Model question."
+        },
+        "effort": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "The agent's own effort value (Claude --effort, Codex -c model_reasoning_effort=<value>), compared as written; a non-empty string without whitespace. No default. Required with mode \"semi-auto\" or \"auto\"; with \"ask\" it is only the recommended option of the Effort question."
+        },
+        "escalate": {
+          "$ref": "#/$defs/tier",
+          "description": "A second launch tier for launch.agent, {model, effort}, for tasks that meet an escalation criterion. Valid only with mode \"semi-auto\" (launched after an answered Model question) or \"auto\" (chosen by the coordinator). No default."
+        },
+        "top": {
+          "$ref": "#/$defs/tier",
+          "description": "A third, highest launch tier for launch.agent, {model, effort}, for tasks that meet one of the stricter top criteria. Valid only together with escalate, so only with mode \"semi-auto\" or \"auto\". No default."
+        }
+      },
+      "if": {
+        "required": ["mode"],
+        "properties": { "mode": { "enum": ["semi-auto", "auto"] } }
+      },
+      "then": { "required": ["agent", "model", "effort"] },
+      "dependentSchemas": {
+        "escalate": {
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["semi-auto", "auto"] } }
+        }
+      },
+      "dependentRequired": { "top": ["escalate"] }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Limits the role guard enforces on the coordinator in workflow mode \"worktree\". In mode \"direct\" they do not apply to the coordinator's own main checkout (and orca worktree create is blocked); they are kept for switching back.",
+      "properties": {
+        "maxWorktrees": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "The most task worktrees (linked worktrees, the main checkout excluded) the repository may have when the coordinator runs orca worktree create; an integer >= 1. The create is also blocked when Orca cannot give a complete count."
+        },
+        "smallChangeFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 2,
+          "description": "Direct edits in the main checkout: the most non-documentation files with uncommitted changes, counting existing uncommitted and untracked files; an integer >= 0 (0 blocks every direct non-documentation edit). Documentation (*.md, docs/, references/, .claude/) is not counted, and Write stays blocked for other files."
+        },
+        "smallChangeLines": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 20,
+          "description": "Direct edits in the main checkout: the most changed lines in those non-documentation files in total; an integer >= 0."
+        }
+      }
+    },
+    "monitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "deprecated": true,
+      "description": "Deprecated: ignored since 1.12.0, which removed scripts/orca-wait.sh (Orca wakes the coordinator itself). Still accepted and checked so existing files stay valid, with a deprecation warning; /orca-init no longer writes it and --settings=reset removes it. Remove the section.",
+      "properties": {
+        "wakeOnStatus": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated, ignored since 1.12.0. true or false."
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "deprecated": true,
+          "description": "Deprecated, ignored since 1.12.0. An integer > 0."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "effort"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "The tier's model value for launch.agent, passed like launch.model; a non-empty string without whitespace. Required."
+        },
+        "effort": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "The tier's effort value for launch.agent, passed like launch.effort; a non-empty string without whitespace. Required."
+        }
+      }
+    }
+  }
+}

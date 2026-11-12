@@ -27,10 +27,17 @@ master)
   else
     launch='ask (Agent/Model/Effort questions before every launch)'
   fi
+  base="- The base ref is what \`sh \"$base_ref\"\` prints; do not assume a branch name."
+  if [ "$(orca_config .workflow.mode)" = direct ]; then
+    work="- Workflow mode direct (workflow.mode in .orca-dev-ops.json): implement in this main checkout, with no edit limits; after the repository's verification, commit directly on the base ref and push. No child worktrees (\`orca worktree create\` is blocked); switching back is the user's edit of workflow.mode.
+$base"
+  else
+    work="- Implementation runs in child task worktrees, not in this checkout.
+$base
+- The PreToolUse guard enforces the direct-edit limits of this checkout."
+  fi
   ctx="[orca-workflow] This is the coordinator (master) session of a repository that uses the Orca worktree rules. Follow the \`orca-dev-ops\` skill.
-- Implementation runs in child task worktrees, not in this checkout.
-- The base ref is what \`sh \"$base_ref\"\` prints; do not assume a branch name.
-- The PreToolUse guard enforces the direct-edit limits of this checkout.
+$work
 - Launch mode: $launch.${ORCA_CONFIG_ERROR:+ Settings warning: $ORCA_CONFIG_ERROR}" ;;
 child)
   ctx="[orca-workflow] This is a child (worker) session in an Orca task worktree. Implement the plan the coordinator sent and leave all changes uncommitted.

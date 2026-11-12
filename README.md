@@ -27,6 +27,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
 | `scripts/orca-usage.sh` | Sums a child worktree's token usage from the local Claude and Codex transcripts |
 | `docs/config.md` | Reference for the repository settings file |
+| `schemas/orca-dev-ops.schema.json` | JSON Schema of the repository settings file, for editor completion and checks (`$schema`) |
 | `templates/worktree-rules.md` | The generic rules block that gets installed |
 | `templates/child-settings.json` | Settings passed to child Claude sessions with `--settings`; turns off Claude Code push notifications for them |
 
@@ -96,7 +97,10 @@ commands, are added by hand outside the markers.
 ## Settings
 
 A repository can place an optional `.orca-dev-ops.json` at its top level to
-choose the launch mode (`ask`: questions before every launch, the default;
+choose the workflow mode (`worktree`: children implement in task worktrees,
+the default; `direct`: the coordinator implements in the main checkout
+without edit limits and commits directly on the base ref, with no child
+worktrees), the launch mode (`ask`: questions before every launch, the default;
 `semi-auto`: a fixed agent, model, and effort without questions, plus one
 `Model` question before an optional escalate tier or an optional top tier
 above it; `auto`: the same without any question, the coordinator choosing the
@@ -107,7 +111,11 @@ section of earlier versions is ignored since 1.12.0 (still accepted, with a
 deprecation warning); remove it. Without it,
 behavior is unchanged. Initialization creates it with every default; the
 written values stay as they are when a later plugin version changes a
-default. See [docs/config.md](docs/config.md);
+default. Its first key, `$schema`, points editors at
+[schemas/orca-dev-ops.schema.json](schemas/orca-dev-ops.schema.json) for
+completion and descriptions. After upgrading the plugin, rerun `/orca-init`
+in each repository; an older plugin treats a file with `workflow` or
+`$schema` as invalid. See [docs/config.md](docs/config.md);
 `scripts/orca-config.sh show` prints the effective settings.
 
 ## Prerequisites

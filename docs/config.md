@@ -4,7 +4,8 @@ English | [日本語](config.ja.md)
 
 A repository can tune the orca-dev-ops workflow with an optional settings file.
 Without it, every hook and script behaves exactly as it does without settings:
-the coordinator asks for the agent, model, and effort before every launch, at
+child agents implement in task worktrees (workflow mode `worktree`), the
+coordinator asks for the agent, model, and effort before every launch, at
 most 3 task worktrees exist at once, the main checkout allows 2 files and 20
 lines of direct non-documentation change, and a coordinator wait lasts
 590000 ms.
@@ -19,20 +20,54 @@ loosen its own limits by editing it; the guard also blocks a child's Write or
 Edit of its own copy.
 
 Commit the file like any other repository file. A change made in the main
-checkout takes effect for the next hook call; no restart is needed.
+checkout takes effect for the next hook call; no restart is needed. The
+coordinator's session-start context is the exception: it is written once at
+session start, so after a change run `scripts/orca-config.sh show` (below) to
+confirm the effective values.
+
+## Editor support (`$schema`)
+
+The plugin ships a JSON Schema for this file,
+[`schemas/orca-dev-ops.schema.json`](../schemas/orca-dev-ops.schema.json)
+(draft 2020-12). It lists every key with its type, allowed values, default,
+and an English description, rejects unknown keys at every level, and encodes
+the conditional rules below (`semi-auto`/`auto` need `agent`, `model`, and
+`effort`; `escalate` needs `semi-auto` or `auto`; `top` needs `escalate`).
+The schema and the loader are meant to accept the same files: the test suite
+runs a set of valid and invalid sample files through both and expects the
+same verdict for each.
+
+A top-level `"$schema"` key points an editor at it:
+
+```json
+"$schema": "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json"
+```
+
+Editors that read `$schema` (VS Code, JetBrains IDEs, and others with a JSON
+language server) then offer completion, show the descriptions on hover, and
+mark invalid values while you edit. The URL is the schema on the plugin's
+`main` branch, so it follows the latest release; to pin a version, point
+`$schema` at a local copy instead. The loader accepts any
+non-empty string as `$schema` and otherwise ignores it: it is not part of the
+effective settings and `scripts/orca-config.sh show` does not print it. JSON
+has no comments, and the loader (jq) rejects them, so the schema's
+descriptions take their place; do not use JSONC.
 
 ## Creation by `/orca-init`
 
 When the main checkout has no `.orca-dev-ops.json`, `/orca-init` creates it
-with every key that has a default (the values in the table below), without
-needing `--apply`, and prints `created: <path>`. It runs from a linked worktree
-too and then writes the file into the main checkout. `launch.agent`,
-`launch.model`, and `launch.effort` have no default and are not written.
+with `$schema` first and then every key that has a default (the values in the
+table below), without needing `--apply`, and prints `created: <path>`. It runs
+from a linked worktree too and then writes the file into the main checkout.
+`launch.agent`, `launch.model`, and `launch.effort` have no default and are
+not written.
 
 ```json
 {
-  "launch": { "mode": "ask" },
-  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
+  "$schema":  "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json",
+  "workflow": { "mode": "worktree" },
+  "launch":   { "mode": "ask" },
+  "limits":   { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -51,7 +86,10 @@ also reports what a newer plugin offers and what a reset would lose:
 
 - `settings: missing key <key> (default <value>)`: a key with a default that
   the file lacks, at leaf level (for example `limits.smallChangeLines`). The
-  default applies anyway; adding it pins the current value.
+  default applies anyway; adding it pins the current value. `$schema` is
+  reported this way too (`settings: missing key $schema (default "<URL>")`);
+  it changes no behavior and only enables the editor support above. A file
+  with a `$schema` of its own is not reported as missing it.
 - `settings: missing key <key> (suggested <value>)`: an opt-in key with a
   suggested value that keeps the file valid. Two keys have one:
   `launch.escalate` is `{"model": "claude-opus-5-5", "effort": "high"}`,
@@ -74,10 +112,13 @@ When at least one key is missing, it asks to rerun with one of these
 - `--settings=add` adds every `missing key` with the value shown and keeps every
   existing value (`updated: <path> (added: ...)`, or `up to date: <path>`). The
   added values are pinned like created ones: a later default change does not
-  update them. An invalid file is not changed; only a reset replaces it.
+  update them. The rewritten file has `$schema` first, then `workflow`,
+  `launch`, and `limits`; a `$schema` of the file's own is kept as it is. An
+  invalid file is not changed; only a reset replaces it.
 - `--settings=reset` copies the file to `.orca-dev-ops.json.bak` next to it and
   writes the defaults exactly as a newly created file (`reset: <path> (backup:
-  <bak>)`). It works on an invalid file too. When the `.bak` file already
+  <bak>)`), including the plugin's `$schema` URL and `workflow.mode`
+  `"worktree"`. It works on an invalid file too. When the `.bak` file already
   exists, nothing is changed (`SETTINGS NOT RESET: ...`); move the backup away
   first.
 
@@ -91,10 +132,12 @@ line per section.
 
 ```json
 {
-  "launch": { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
-              "escalate": { "model": "claude-opus-5-5", "effort": "high" },
-              "top":      { "model": "claude-fable-5-2", "effort": "high" } },
-  "limits": { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
+  "$schema":  "https://raw.githubusercontent.com/5umm3r/orca-dev-ops/main/schemas/orca-dev-ops.schema.json",
+  "workflow": { "mode": "worktree" },
+  "launch":   { "mode": "auto", "agent": "claude", "model": "claude-sonnet-5-5", "effort": "medium",
+                "escalate": { "model": "claude-opus-5-5", "effort": "high" },
+                "top":      { "model": "claude-fable-5-2", "effort": "high" } },
+  "limits":   { "maxWorktrees": 3, "smallChangeFiles": 2, "smallChangeLines": 20 }
 }
 ```
 
@@ -102,9 +145,53 @@ Every key is optional; a missing key takes its default. `{}` is the same as
 no file. With `"mode": "auto"` as here, the coordinator launches the escalate
 tier without a question when a task meets an escalation criterion, and the
 top tier when it meets one of the stricter top criteria; use `"semi-auto"` to
-have the user answer a `Model` question first.
+have the user answer a `Model` question first. With `"workflow": { "mode":
+"direct" }` the coordinator implements in the main checkout instead and no
+child is launched; `launch` and `limits` stay valid and apply again after
+switching back.
 
 ## Keys
+
+### `$schema`
+
+| Key | Type | Default | Behavior |
+| --- | --- | --- | --- |
+| `$schema` | non-empty string | the plugin's schema URL (written by `/orca-init`) | Only for editors (see "Editor support"); the loader ignores the value |
+
+### `workflow`
+
+| Key | Type | Default | Behavior |
+| --- | --- | --- | --- |
+| `workflow.mode` | `"worktree"` or `"direct"` | `"worktree"` | Where implementation happens (below) |
+
+`worktree` (the default) is the workflow the rest of this document and the
+`orca-dev-ops` skill describe: child agents implement in Orca task
+worktrees, the coordinator plans, reviews, and integrates, and its own direct
+edits in the main checkout stay within the `limits` below.
+
+`direct` is for repositories that want the coordinator to implement by
+itself, without child worktrees:
+
+- The role guard lets the coordinator edit any file in its own main checkout
+  with any tool (Write, Edit, NotebookEdit) and any size: the small-change
+  limits and the Write block do not apply there. Editing a linked worktree,
+  or another repository's main checkout, stays as before.
+- The coordinator commits directly on the base ref after the repository's
+  verification, then pushes (a rule of the skill; the guard does not check
+  commits).
+- `orca worktree create` is blocked, with a message naming
+  `workflow.mode`; raw `git worktree add`/`remove` stay blocked as always.
+- The coordinator's session context says so instead of the child-worktree
+  lines. Child sessions, the launch gate, and the child rules do not change.
+
+`launch` and `limits` stay valid together with `direct` and keep their values
+for switching back. The mode is changed only by the user, by editing
+`workflow.mode`; the coordinator never edits it on its own (the guard's deny
+message says so too). Before switching to `direct`, integrate and remove the
+existing task worktrees: worktrees that remain keep the child rules, and the
+coordinator still cannot edit them. The session-start context is not
+updated by a switch; run `scripts/orca-config.sh show` to confirm the mode in
+effect.
 
 ### `launch`
 
@@ -237,7 +324,9 @@ The small-change limits apply to the coordinator's Edit in the main
 checkout, counting existing uncommitted and untracked changes;
 documentation (`*.md`, `docs/`, `references/`, `.claude/`) is not counted and
 Write stays blocked for other files. `0` blocks every direct
-non-documentation edit.
+non-documentation edit. With `workflow.mode` `"direct"` none of these limits
+applies to the coordinator's own main checkout, and `orca worktree create`
+is blocked before any count.
 
 ### `monitor` (deprecated, ignored since 1.12.0)
 
@@ -268,6 +357,9 @@ The whole file is checked on every read. It is invalid when:
 - it has a key not listed above (at any level; the deprecated `monitor`
   section is still listed and accepted);
 - a value has the wrong type or is out of range;
+- `$schema` is not a non-empty string (`$schema must be a non-empty string`);
+- `workflow` is not an object, or `workflow.mode` is neither `"worktree"` nor
+  `"direct"`;
 - `launch.mode` is `"semi-auto"` or `"auto"` without `launch.agent`,
   `launch.model`, and `launch.effort`;
 - `launch.escalate` is not an object with only `model` and `effort`, either
@@ -278,12 +370,29 @@ The whole file is checked on every read. It is invalid when:
   (`launch.top is only valid together with escalate`).
 
 An invalid file is ignored as a whole; nothing is taken from it. The built-in
-defaults apply, including launch mode `ask`, which is the strictest behavior.
-The problem is reported:
+defaults apply, including workflow mode `worktree` with the limits and launch
+mode `ask`, which is the strictest behavior. The problem is reported:
 
 - in the coordinator's session context at start;
 - in every deny message of the launch gate and the role guard;
 - by `scripts/orca-config.sh show` (exit 3) and `/orca-init`.
+
+## Migration to 1.15.0 (`workflow`, `$schema`)
+
+1.15.0 adds the `workflow` section and the `$schema` key. A file without them
+behaves exactly as before (workflow mode `worktree`); `/orca-init` reports
+them as missing keys, and `--settings=add` adds them.
+
+- After upgrading the plugin, rerun `/orca-init` in every repository that
+  uses it. Besides the settings report, this refreshes the Codex launch gate's
+  copy of the loader, `.codex/hooks/orca-lib.sh`; an older copy treats a file
+  with `workflow` or `$schema` as invalid, so Codex coordinators would fall
+  back to launch mode `ask`.
+- An older plugin on another device does the same: it treats `workflow` and
+  `$schema` as unknown keys, ignores the whole file, and applies its built-in
+  defaults (worktree mode with the default limits and launch mode `ask`),
+  with a settings warning. Upgrade the plugin on every device that works on
+  the repository before adding either key or running `--settings=add`.
 
 ## What is not configurable
 
@@ -308,7 +417,8 @@ sh scripts/orca-config.sh show [<path>]
 ```
 
 Run it from the plugin (in Claude, `sh "${CLAUDE_PLUGIN_ROOT}/scripts/orca-config.sh" show`).
-It prints the effective settings (the file merged over the defaults) as JSON
+It prints the effective settings (the file merged over the defaults, with
+`workflow.mode` and without `$schema` or `monitor`) as JSON
 on stdout; stderr names the source file and, when the file is invalid, the
 reason, or, for a valid file, the settings warning (the `monitor` deprecation
 notice). Exit codes: 0 valid or missing, 3 invalid (the defaults are printed),

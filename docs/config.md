@@ -328,6 +328,63 @@ non-documentation edit. With `workflow.mode` `"direct"` none of these limits
 applies to the coordinator's own main checkout, and `orca worktree create`
 is blocked before any count.
 
+### `heavy` (opt-in, since 1.17.0)
+
+Limits how many heavy commands (test suites, builds) the worktrees of the
+repository run at once on one machine, so parallel children do not make the
+Mac unresponsive. `/orca-init` does not write this section; every key falls
+back to the default below.
+
+| Key | Type | Default | Behavior |
+| --- | --- | --- | --- |
+| `heavy.concurrency` | `"auto"` or integer >= 1 | `"auto"` | Slots: how many heavy commands may run at once. `"auto"` is `max(1, min(cores / coresPerSlot, memory GB / memoryGBPerSlot))`, rounded down, computed on each machine |
+| `heavy.coresPerSlot` | integer >= 1 | `6` | With `"auto"`: CPU cores (`hw.ncpu`) per slot |
+| `heavy.memoryGBPerSlot` | integer >= 1 | `16` | With `"auto"`: GB of memory per slot |
+| `heavy.maxLoad` | number > 0 | `0.8` | Wait before starting while the 1-minute load average exceeds cores * `maxLoad` |
+| `heavy.minFreeMemory` | integer 0-100 | `20` | Wait before starting while the free memory (`memory_pressure`) is below this percentage; `0` turns the check off |
+| `heavy.maxWaitSeconds` | integer >= 0 | `1800` | After waiting this long in total, run anyway without a slot, with a warning |
+| `heavy.priority` | `"normal"`, `"low"`, `"background"` | `"low"` | `low`: `nice -n 10`. `background`: macOS `taskpolicy -b` (efficiency cores only; much slower, keeps the machine responsive) |
+| `heavy.commands` | array of non-empty strings | `[]` | Command texts that count as heavy here, e.g. `"sh tests/run_all.sh"`, `"xcodebuild"` |
+
+Examples with the defaults: 12 cores and 32 GB give 2 slots; 8 cores and
+16 GB give 1; 24 cores and 128 GB give 4.
+
+A heavy command runs through the plugin's wrapper:
+
+```sh
+sh "<plugin root>/scripts/orca-heavy.sh" run -- sh tests/run_all.sh
+sh "<plugin root>/scripts/orca-heavy.sh" status
+```
+
+- Slots are directories `<git common dir>/orca-heavy/slot-<n>`, shared by
+  every worktree of the repository. A slot whose holder process is gone is
+  freed.
+- While waiting, it prints why on stderr (`orca-heavy: waiting (40s): all 1
+  slot(s) held: cc-alpha (sh tests/run_all.sh)`, or the load or memory
+  figure) and records itself in `<git common dir>/orca-heavy/waiting/`.
+- `status` prints the slots, the machine figures, the holders, and the
+  waiters as JSON; the progress report includes them.
+- After `maxWaitSeconds` it starts anyway: in a free slot when only the load
+  or memory check held it back, otherwise without a slot.
+- A child runs the wrapped command in the background (the worktree rules),
+  because a wait can outlast a foreground command.
+- Codex children: the slot directory must be writable from the sandbox. The
+  coordinator creates it and adds `--add-dir <git common dir>/orca-heavy` to
+  the Codex launch (see "Starting a child" in `skills/orca-dev-ops/SKILL.md`).
+  Without it the wrapper warns and runs the command without a slot.
+
+With `heavy.commands` set, the role guard denies a Claude child's Bash
+command that contains one of them unless it runs through `orca-heavy.sh
+run`; the deny message gives the wrapper's path. Codex children follow the
+worktree rules and the Dispatch instead (Claude hooks do not apply to them).
+The coordinator is not limited.
+
+Per machine: `${XDG_CONFIG_HOME:-~/.config}/orca-dev-ops/heavy.json` holds
+the same keys except `commands`, as a flat object
+(`{"concurrency": 1, "priority": "background"}`), and overrides the
+repository's values on that machine only. An invalid file is ignored with a
+warning. It is not part of the repository.
+
 ### `monitor` (deprecated, ignored since 1.12.0)
 
 Versions before 1.12.0 used `monitor.wakeOnStatus` and `monitor.timeoutMs` to
@@ -367,7 +424,9 @@ The whole file is checked on every read. It is invalid when:
   `"semi-auto"` nor `"auto"`;
 - `launch.top` is not an object with only `model` and `effort`, either value
   is not a non-empty string without spaces, or `launch.escalate` is not set
-  (`launch.top is only valid together with escalate`).
+  (`launch.top is only valid together with escalate`);
+- a `heavy` key is out of range (see `heavy`), or `heavy.commands` is not an
+  array of non-empty strings.
 
 An invalid file is ignored as a whole; nothing is taken from it. The built-in
 defaults apply, including workflow mode `worktree` with the limits and launch
@@ -393,6 +452,14 @@ them as missing keys, and `--settings=add` adds them.
   defaults (worktree mode with the default limits and launch mode `ask`),
   with a settings warning. Upgrade the plugin on every device that works on
   the repository before adding either key or running `--settings=add`.
+
+## Migration to 1.17.0 (`heavy`)
+
+1.17.0 adds the optional `heavy` section. A file without it behaves exactly as
+before. An older plugin on another device treats `heavy` as an unknown key and
+ignores the whole file, as described for 1.15.0: upgrade the plugin on every
+device and rerun `/orca-init` (the worktree rules and the Codex copy of the
+loader change) before adding it.
 
 ## What is not configurable
 

@@ -24,11 +24,11 @@ result "schema: orca-init writes a \$schema" yes "$([ -n "$url" ] && echo yes ||
 result "schema: \$id is the URL orca-init writes" "$url" "$(jq -r '.["$id"]' "$schema" 2>/dev/null)"
 result "schema: the URL names this file on the main branch" yes \
   "$(case "$url" in (https://raw.githubusercontent.com/*/main/schemas/orca-dev-ops.schema.json) echo yes ;; (*) echo no ;; esac)"
-result "schema: top-level properties" '$schema,launch,limits,monitor,workflow' "$(jq -r '.properties | keys | join(",")' "$schema" 2>/dev/null)"
+result "schema: top-level properties" '$schema,heavy,launch,limits,monitor,workflow' "$(jq -r '.properties | keys | join(",")' "$schema" 2>/dev/null)"
 # tree: the schema objects that describe a JSON object of the file (root, sections, tiers),
 # reached through properties and $defs; not the conditional subschemas.
 tree='def tree: ., (.properties // {} | .[] | tree); [., (.["$defs"] // {} | .[])] | map(tree) | map(select(.type == "object"))'
-result "schema: object schemas found" 6 "$(jq "$tree | length" "$schema" 2>/dev/null)"
+result "schema: object schemas found" 7 "$(jq "$tree | length" "$schema" 2>/dev/null)"
 result "schema: additionalProperties false on every object" true "$(jq "$tree | all(.additionalProperties == false)" "$schema" 2>/dev/null)"
 result "schema: a description on every key" true "$(jq "$tree | map(.properties[]) | all(has(\"description\") and (.description | length) > 0)" "$schema" 2>/dev/null)"
 result "schema: monitor deprecated" true "$(jq '.properties.monitor.deprecated' "$schema" 2>/dev/null)"
@@ -59,6 +59,10 @@ sample "auto with escalate and top" valid '{"launch":{'"$ea,$ex,$tp"'}}'
 sample "limits at their minimums" valid '{"limits":{"maxWorktrees":1,"smallChangeFiles":0,"smallChangeLines":0}}'
 sample "integral float" valid '{"limits":{"maxWorktrees":2.0}}'
 sample "full example" valid '{"$schema":"https://example.com/s.json","workflow":{"mode":"direct"},"launch":{'"$ea,$ex,$tp"'},"limits":{"maxWorktrees":3,"smallChangeFiles":2,"smallChangeLines":20}}'
+sample "heavy, every key" valid '{"heavy":{"concurrency":"auto","coresPerSlot":6,"memoryGBPerSlot":16,"maxLoad":0.8,"minFreeMemory":20,"maxWaitSeconds":1800,"priority":"low","commands":["sh tests/run_all.sh","xcodebuild"]}}'
+sample "heavy, fixed concurrency" valid '{"heavy":{"concurrency":2,"priority":"background","maxLoad":1.5,"minFreeMemory":0,"maxWaitSeconds":0}}'
+sample "heavy, empty commands" valid '{"heavy":{"commands":[]}}'
+sample "empty heavy" valid '{"heavy":{}}'
 sample "deprecated monitor" valid '{"monitor":{"wakeOnStatus":true,"timeoutMs":60000}}'
 sample "empty monitor" valid '{"monitor":{}}'
 sample "top level array" invalid '[]'
@@ -95,6 +99,18 @@ sample "maxWorktrees boolean" invalid '{"limits":{"maxWorktrees":true}}'
 sample "negative smallChangeFiles" invalid '{"limits":{"smallChangeFiles":-1}}'
 sample "string smallChangeLines" invalid '{"limits":{"smallChangeLines":"20"}}'
 sample "unknown key under limits" invalid '{"limits":{"maxWorktrees":3,"x":1}}'
+sample "heavy concurrency 0" invalid '{"heavy":{"concurrency":0}}'
+sample "heavy concurrency word" invalid '{"heavy":{"concurrency":"many"}}'
+sample "heavy coresPerSlot fraction" invalid '{"heavy":{"coresPerSlot":1.5}}'
+sample "heavy memoryGBPerSlot 0" invalid '{"heavy":{"memoryGBPerSlot":0}}'
+sample "heavy maxLoad 0" invalid '{"heavy":{"maxLoad":0}}'
+sample "heavy minFreeMemory 101" invalid '{"heavy":{"minFreeMemory":101}}'
+sample "heavy negative maxWaitSeconds" invalid '{"heavy":{"maxWaitSeconds":-1}}'
+sample "heavy bad priority" invalid '{"heavy":{"priority":"high"}}'
+sample "heavy commands string" invalid '{"heavy":{"commands":"xcodebuild"}}'
+sample "heavy blank command" invalid '{"heavy":{"commands":["  "]}}'
+sample "heavy unknown key" invalid '{"heavy":{"slots":2}}'
+sample "heavy not an object" invalid '{"heavy":true}'
 sample "monitor wakeOnStatus string" invalid '{"monitor":{"wakeOnStatus":"true"}}'
 sample "monitor timeoutMs 0" invalid '{"monitor":{"timeoutMs":0}}'
 sample "monitor not an object" invalid '{"monitor":true}'

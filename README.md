@@ -26,6 +26,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `scripts/orca-task-create.sh` | Creates a task as the calling coordinator terminal and prints the task ID only, read from `.result.taskId` (or `.result.task.id` on older Orca); any other receipt is an error |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the task ID is confirmed in the Run and the agent header is on screen, retrying once on the start-up race; a start without a dispatch ID is an error |
 | `scripts/orca-progress.sh` | Read-only progress snapshot for the progress report: each unfinished task of the Run with its screen tail, worktree diff size, `TASKS.md` checklist, and unread messages (peek), plus worktrees with no unfinished task |
+| `scripts/orca-heavy.sh` | Runs a heavy command (test suite, build) in one of a few slots shared by the repository's worktrees; the slot count follows the machine's cores and memory, and it also waits while the load or memory pressure is high |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
 | `scripts/orca-usage.sh` | Sums a child worktree's token usage from the local Claude and Codex transcripts |
 | `docs/config.md` | Reference for the repository settings file |
@@ -190,6 +191,18 @@ percentage, what it is doing now, and its diff size. The percentage is an
 estimate from the screen and the worktree (and the `TASKS.md` checklist when
 there is one), not a measurement. In workflow mode `direct` there are no
 child tasks to report.
+
+## Heavy commands
+
+Parallel children running test suites or builds at once can make the Mac
+unresponsive. Wrap such commands as `sh "<plugin root>/scripts/orca-heavy.sh"
+run -- <command>`: at most a few run at once across the repository's
+worktrees (by default computed per machine, 12 cores and 32 GB giving 2), and
+a start also waits while the load average or memory pressure is high. List
+the repository's heavy commands in `heavy.commands` of `.orca-dev-ops.json`
+so the role guard makes Claude children use the wrapper; each machine can
+override the numbers in `~/.config/orca-dev-ops/heavy.json`. See `heavy` in
+[docs/config.md](docs/config.md).
 
 ## Running the tests
 

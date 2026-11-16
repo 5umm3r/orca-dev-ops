@@ -15,12 +15,15 @@
 #      marks nothing read). A message of no unfinished task (its task may already be
 #      completed while its worker_done is unread) goes to .unreadOther.
 #   7. git worktree list of this repository: linked worktrees without an unfinished task.
+#   8. scripts/orca-heavy.sh status: the heavy-command slots, who holds them, and who waits
+#      (null when it fails).
 # Prints one JSON object:
 #   {run, tasks: [{id, title, status, dispatchId, assignee, agent, lastOutputAt, worktree,
 #    branch, diff: {files, insertions, deletions, untracked} | null, checklist: {done, total} |
 #    null, screen: [line] | null, unread: [{type, subject}] | null}], completed: [{id, title}],
 #    unreadOther: [{taskId, title, type, subject}] | null, idleWorktrees: [{path, branch}],
-#    terminalsTruncated, peekFailed}
+#    terminalsTruncated, peekFailed, heavy: {slots, held: [{worktree, command, since}],
+#    waiting: [{worktree, command, since, reason}]} | null}
 # A failing terminal list, terminal read, or peek leaves its fields null (peekFailed true).
 # Exit codes:
 #   0   the snapshot is on stdout
@@ -49,6 +52,9 @@ command -v orca >/dev/null 2>&1 || die 1 "orca is not on PATH"
 command -v jq >/dev/null 2>&1 || die 1 "jq is not on PATH"
 
 tmpd=$(mktemp -d) || exit 1
+heavy=$(sh "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/orca-heavy.sh" status 2>/dev/null \
+  | jq -c '{slots, held: [.held[] | {worktree, command, since}], waiting: [.waiting[] | {worktree, command, since, reason}]}' 2>/dev/null)
+[ -n "$heavy" ] || heavy=null
 trap 'rm -rf "$tmpd"' EXIT
 
 # phys <path>: the physical path when it is a directory, else <path>.
@@ -79,8 +85,8 @@ if [ -z "$run" ]; then
   fi
   if [ -z "$run" ]; then
     : > "$tmpd/active"
-    jq -n --argjson idle "$(idle_json "$tmpd/active")" \
-      '{run: null, tasks: [], completed: [], unreadOther: [], idleWorktrees: $idle,
+    jq -n --argjson idle "$(idle_json "$tmpd/active")" --argjson heavy "$heavy" \
+      '{run: null, heavy: $heavy, tasks: [], completed: [], unreadOther: [], idleWorktrees: $idle,
         terminalsTruncated: false, peekFailed: false}'
     exit 0
   fi
@@ -143,7 +149,7 @@ done
 
 jq -n --arg run "$run" --slurpfile tasks "$tmpd/tasks" --argjson list "$list" \
   --argjson idle "$(idle_json "$tmpd/active")" --argjson pf "$peek_failed" \
-  --argjson mail "$mail" --argjson terms "$terms" '
+  --argjson mail "$mail" --argjson terms "$terms" --argjson heavy "$heavy" '
   ([$tasks[].id]) as $open
   | ([$list.result.tasks[] | {key: .id, value: .title}] | from_entries) as $titles
   | {run: $run, tasks: $tasks,
@@ -152,4 +158,5 @@ jq -n --arg run "$run" --slurpfile tasks "$tmpd/tasks" --argjson list "$list" \
        [$mail.result.messages[] | (.payload.taskId // null) as $id
         | select($id == null or ($open | index($id) | not))
         | {taskId: $id, title: (if $id == null then null else $titles[$id] end), type, subject}] end),
-     idleWorktrees: $idle, terminalsTruncated: ($terms.result.truncated == true), peekFailed: $pf}'
+     idleWorktrees: $idle, terminalsTruncated: ($terms.result.truncated == true), peekFailed: $pf,
+     heavy: $heavy}'

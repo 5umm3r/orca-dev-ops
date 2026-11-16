@@ -137,6 +137,10 @@ orca_worktrees() {
 # launch and limits stay valid next to it, for switching back.
 # $schema (a non-empty string) only points editors at schemas/orca-dev-ops.schema.json; it is
 # accepted and left out of the effective settings.
+# heavy (opt-in, no defaults here): scripts/orca-heavy.sh limits how many heavy commands (test
+# suites, builds) the worktrees of this repository run at once; heavy.commands also makes the
+# role guard deny those commands in a child unless wrapped. The same keys except commands may be
+# overridden per machine (ORCA_HEAVY_LOCAL_CHECK, see scripts/orca-heavy.sh).
 # Deprecated: the monitor section (wakeOnStatus, timeoutMs) configured scripts/orca-wait.sh,
 # which 1.12.0 removed (Orca wakes the coordinator itself). It is still accepted and checked as
 # before, so existing files stay valid, but it is left out of the effective settings and a valid
@@ -153,26 +157,38 @@ ORCA_CONFIG_OPT_IN='{path: ["launch", "agent"]}, {path: ["launch", "model"]}, {p
   ({path: ["launch", "top"]} + if (.launch.mode == "semi-auto" or .launch.mode == "auto") and .launch.agent == "claude"
       and (.launch.escalate | type) == "object"
     then {value: {model: "claude-fable-5-2", effort: "high"}} else {} end)'
+# The checks of the heavy keys, as a jq expression over one object, emitting "<key> must be ..."
+# lines: shared by the repository file (heavy.<key>) and the per-machine file.
+ORCA_HEAVY_CHECK='need("concurrency"; . == "auto" or (int and . >= 1); "\"auto\" or an integer >= 1"),
+      need("coresPerSlot"; int and . >= 1; "an integer >= 1"),
+      need("memoryGBPerSlot"; int and . >= 1; "an integer >= 1"),
+      need("maxLoad"; type == "number" and . > 0; "a number > 0"),
+      need("minFreeMemory"; int and . >= 0 and . <= 100; "an integer from 0 to 100"),
+      need("maxWaitSeconds"; int and . >= 0; "an integer >= 0"),
+      need("priority"; . == "normal" or . == "low" or . == "background"; "\"normal\", \"low\", or \"background\"")'
+ORCA_HEAVY_LOCAL_KEYS='"concurrency", "coresPerSlot", "memoryGBPerSlot", "maxLoad", "minFreeMemory", "maxWaitSeconds", "priority"'
+ORCA_CONFIG_DEFS='def int: type == "number" and . == floor;
+  def word: type == "string" and test("^\\S+$");
+  def need($k; ok; $what): if has($k) and (.[$k] | ok | not) then "\($k) must be \($what)" else empty end;'
 # Reads the slurped file (an array of its JSON values) and prints every problem, "; "-joined;
 # empty when the file is valid.
-ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
-  def word: type == "string" and test("^\\S+$");
+ORCA_CONFIG_CHECK="$ORCA_CONFIG_DEFS"'
   def section($name; $allowed):
     if has($name) | not then empty
     elif (.[$name] | type) != "object" then "\($name) must be an object"
     else (.[$name] | keys - $allowed)[] | "unknown key \($name).\(.)" end;
-  def need($k; ok; $what): if has($k) and (.[$k] | ok | not) then "\($k) must be \($what)" else empty end;
   def tier($k): select(has($k)) | .[$k] | if type != "object" then "\($k) must be an object"
     else ((keys - ["model", "effort"])[] | "\($k).\(.) is not allowed"),
       (["model", "effort"][] as $f | select((has($f) | not) or (.[$f] | word | not))
         | "\($k).\($f) must be a non-empty string without spaces") end;
   if length != 1 then "the file must hold exactly one JSON object"
   else .[0] | if type != "object" then "the top level must be a JSON object" else [
-    ((keys - ["$schema", "workflow", "launch", "limits", "monitor"])[] | "unknown key \(.)"),
+    ((keys - ["$schema", "workflow", "launch", "limits", "heavy", "monitor"])[] | "unknown key \(.)"),
     (select(has("$schema") and (.["$schema"] | type != "string" or length == 0)) | "$schema must be a non-empty string"),
     section("workflow"; ["mode"]),
     section("launch"; ["mode", "agent", "model", "effort", "escalate", "top"]),
     section("limits"; ["maxWorktrees", "smallChangeFiles", "smallChangeLines"]),
+    section("heavy"; ['"$ORCA_HEAVY_LOCAL_KEYS"', "commands"]),
     section("monitor"; ["wakeOnStatus", "timeoutMs"]),
     (.workflow | objects | need("mode"; . == "worktree" or . == "direct"; "\"worktree\" or \"direct\"") | "workflow.\(.)"),
     (.launch | objects | (
@@ -191,6 +207,8 @@ ORCA_CONFIG_CHECK='def int: type == "number" and . == floor;
       need("maxWorktrees"; int and . >= 1; "an integer >= 1"),
       need("smallChangeFiles"; int and . >= 0; "an integer >= 0"),
       need("smallChangeLines"; int and . >= 0; "an integer >= 0")) | "limits.\(.)"),
+    (.heavy | objects | ('"$ORCA_HEAVY_CHECK"',
+      need("commands"; type == "array" and all(type == "string" and test("\\S")); "an array of non-empty strings")) | "heavy.\(.)"),
     (.monitor | objects | (
       need("wakeOnStatus"; type == "boolean"; "true or false"),
       need("timeoutMs"; int and . > 0; "an integer > 0")) | "monitor.\(.)")

@@ -477,4 +477,32 @@ timed "Orca within the bound: child git commit" deny "$(run 'git commit -m x')" 
 timed "Orca within the bound: master Write src" deny "$(write "$repo/src/new.sh")" 4
 unset ORCA_CLI_TIMEOUT ORCA_STUB_DELAY
 
+# --- heavy.commands: a child runs a listed heavy command only through orca-heavy.sh run
+check "heavy: no setting, test suite allowed" allow "$(run 'sh tests/run_all.sh --long')"
+printf '%s\n' '{"heavy":{"commands":["sh tests/run_all.sh","xcodebuild"]}}' > "$repo/.orca-dev-ops.json"
+check "heavy: listed command denied" deny "$(run 'sh tests/run_all.sh --long')"
+check "heavy: listed command in a pipeline denied" deny "$(run 'cd sub && xcodebuild -scheme App test | tail -20')"
+r=$(reason "$(run 'sh tests/run_all.sh')")
+has "heavy: reason names the command" "$r" '"sh tests/run_all.sh" is a heavy command'
+has "heavy: reason gives the wrapper path" "$r" "sh \"$root/scripts/orca-heavy.sh\" run -- <the same command>"
+check "heavy: wrapped allowed" allow "$(run "sh \"$root/scripts/orca-heavy.sh\" run -- sh tests/run_all.sh --long")"
+check "heavy: wrapped without -- allowed" allow "$(run "sh '$root/scripts/orca-heavy.sh' run xcodebuild test")"
+check "heavy: status of the wrapper is not a wrapper" deny "$(run "sh $root/scripts/orca-heavy.sh status; xcodebuild test")"
+check "heavy: unlisted command allowed" allow "$(run 'sh tests/one.test.sh')"
+check "heavy: wrapped, then an unwrapped one denied" deny "$(run "sh '$root/scripts/orca-heavy.sh' run -- true; xcodebuild test")"
+check "heavy: wrapper run directly allowed" allow "$(run "'$root/scripts/orca-heavy.sh' run -- xcodebuild test")"
+check "heavy: after env and cd allowed only wrapped" deny "$(run 'cd sub && CI=1 xcodebuild test')"
+check "heavy: named in a worker_done body allowed" allow "$(run 'orca orchestration send --run r --type worker_done --body "Verification: sh tests/run_all.sh --long -> 120 passed"')"
+check "heavy: named in an ask allowed" allow "$(run "orca orchestration ask --run r --question 'May I run xcodebuild test now?'")"
+check "heavy: searched for allowed" allow "$(run 'grep -rn xcodebuild .')"
+check "heavy: a longer word is another command" allow "$(run 'xcodebuild-helper --version')"
+check "heavy: extra spaces still match" deny "$(run 'sh   tests/run_all.sh')"
+check "heavy: master not limited" allow "$(run 'sh tests/run_all.sh' "$repo")"
+printf '%s\n' '{"heavy":{"commands":["xcodebuild"]}}' > "$child/.orca-dev-ops.json"
+check "heavy: a worktree copy does not loosen it" deny "$(run 'sh tests/run_all.sh')"
+rm -f "$child/.orca-dev-ops.json"
+printf '%s\n' '{"heavy":{"commands":"xcodebuild"}}' > "$repo/.orca-dev-ops.json"
+check "heavy: invalid file, no heavy limit" allow "$(run 'xcodebuild test')"
+rm -f "$repo/.orca-dev-ops.json"
+
 exit "$fail"

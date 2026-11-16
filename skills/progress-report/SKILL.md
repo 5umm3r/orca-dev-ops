@@ -36,6 +36,9 @@ JSON object:
 - `unreadOther[]`: unread messages of no unfinished task (`taskId`, `title`,
   `type`, `subject`). An unread `worker_done` here is a task Orca already
   marks completed: report it at 95, review pending.
+- `heavy`: the heavy-command slots of this repository on this machine:
+  `slots`, `held[]` and `waiting[]` (`worktree`, `command`, `since`, and the
+  waiter's `reason`), or null. Match `worktree` to the task's worktree name.
 - `peekFailed`: the mailbox could not be read; `terminalsTruncated`: the
   terminal list was cut short, so some `worktree` fields may be null. Say so
   in the report.
@@ -76,7 +79,11 @@ Do not raise the number for these; name them instead:
 - an unread `question` or an open `ask` on screen: waits on the coordinator;
 - an unread `escalation`, an error or blocked screen, or the same test failing
   run after run: blocked;
-- `screen` null: the terminal could not be read.
+- `screen` null: the terminal could not be read;
+- listed in `heavy.waiting`, or `orca-heavy: waiting ...` on screen: waits
+  for a heavy-command slot or for the machine's load or memory (say which,
+  from `reason`); not a stall. A task in `heavy.held` is running its heavy
+  command (usually the 55-92 bands).
 
 ## 3. Report (in the user's language)
 

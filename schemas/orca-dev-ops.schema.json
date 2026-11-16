@@ -97,6 +97,72 @@
         }
       }
     },
+    "heavy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional limit on heavy commands (test suites, builds) that the worktrees of this repository run at once on one machine, through the plugin's scripts/orca-heavy.sh run. No defaults are written; every key falls back to the default stated here. The keys except commands can be overridden per machine in ~/.config/orca-dev-ops/heavy.json (XDG_CONFIG_HOME), so each device fits its own CPU and memory.",
+      "properties": {
+        "concurrency": {
+          "oneOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            }
+          ],
+          "default": "auto",
+          "description": "How many heavy commands may run at once: \"auto\" (default) computes max(1, min(cores / coresPerSlot, memory GB / memoryGBPerSlot)) on each machine, rounded down; an integer >= 1 fixes it."
+        },
+        "coresPerSlot": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 6,
+          "description": "With concurrency \"auto\": CPU cores (hw.ncpu) per slot; an integer >= 1."
+        },
+        "memoryGBPerSlot": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16,
+          "description": "With concurrency \"auto\": GB of memory per slot; an integer >= 1."
+        },
+        "maxLoad": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 0.8,
+          "description": "Wait before starting while the 1-minute load average exceeds cores * maxLoad; a number > 0."
+        },
+        "minFreeMemory": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 20,
+          "description": "Wait before starting while the free memory (memory_pressure) is below this percentage; an integer from 0 to 100 (0 turns the check off)."
+        },
+        "maxWaitSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1800,
+          "description": "After waiting this long in total, run anyway without a slot, with a warning; an integer >= 0."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["normal", "low", "background"],
+          "default": "low",
+          "description": "Scheduling priority of the heavy command: \"normal\", \"low\" (default; nice 10), or \"background\" (macOS taskpolicy -b: efficiency cores only, much slower but keeps the machine responsive)."
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "default": [],
+          "description": "Command texts that count as heavy in this repository, e.g. \"sh tests/run_all.sh\" or \"xcodebuild\". The role guard denies a child's Bash command containing one of them unless it runs through orca-heavy.sh run; Codex children follow the worktree rules instead. Repository only, not per machine."
+        }
+      }
+    },
     "monitor": {
       "type": "object",
       "additionalProperties": false,

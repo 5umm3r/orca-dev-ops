@@ -36,6 +36,11 @@ mkdir -p "$tmp/screens"
 { echo ""; lines 50; echo "   "; echo "✻ Running tests (2m 10s)"; echo ""; } > "$tmp/screens/term_a"
 # term_b has no screen file: its terminal read fails.
 
+# Heavy-command slots: cc-alpha holds one, cx-beta waits (both owned by this live shell).
+mkdir -p "$repo/.git/orca-heavy/slot-1" "$repo/.git/orca-heavy/waiting"
+jq -nc --argjson p "$$" '{pid: $p, worktree: "cc-alpha", command: "sh tests/all.sh", since: 100}' > "$repo/.git/orca-heavy/slot-1/owner"
+jq -nc --argjson p "$$" '{pid: $p, worktree: "cx-beta", command: "xcodebuild test", since: 200, reason: "all 1 slot(s) held: cc-alpha (sh tests/all.sh)"}' > "$repo/.git/orca-heavy/waiting/$$.json"
+export ORCA_HEAVY_NCPU=6 ORCA_HEAVY_MEM_GB=16 ORCA_HEAVY_PROBE='echo 1.0 80'
 export ORCA_TERMINAL_HANDLE=term_own ORCA_STUB_RUN=run_x ORCA_STUB_PEEK=mixed \
   ORCA_STUB_TASK_LIST_FILE="$tmp/tasks.json" ORCA_STUB_TERMINAL_LIST_FILE="$tmp/terminals.json" \
   ORCA_STUB_SCREEN_DIR="$tmp/screens"
@@ -76,6 +81,7 @@ result "gamma: no assignee, no worktree, no screen" '{"assignee":null,"worktree"
 result "gamma: unread status" '["status"]' "$(q '[.tasks[2].unread[].type]')"
 result "idle worktrees: linked worktrees without an unfinished task" "$(jq -nc --arg p "$wd" '[{path: $p, branch: "cc-done"}]')" "$(q .idleWorktrees)"
 result "peek ok" false "$(q .peekFailed)"
+result "heavy: slots, holder, waiter" '{"slots":1,"held":[{"worktree":"cc-alpha","command":"sh tests/all.sh","since":100}],"waiting":[{"worktree":"cx-beta","command":"xcodebuild test","since":200,"reason":"all 1 slot(s) held: cc-alpha (sh tests/all.sh)"}]}' "$(q .heavy)"
 result "no unread outside the unfinished tasks" '[]' "$(q .unreadOther)"
 result "terminal list not truncated" false "$(q .terminalsTruncated)"
 result "screen read with --screen" 1 "$(count 'terminal read --terminal term_a --screen --json')"
@@ -97,6 +103,7 @@ has "--run: task-list for it" "$(cat "$ORCA_STUB_LOG")" "orchestration task-list
 result "unbound" 0 "$(ORCA_STUB_RUN= run)"
 result "unbound: empty snapshot" '{"run":null,"tasks":[],"completed":[]}' "$(q '{run, tasks, completed}')"
 result "unbound: no run-create" 0 "$(count 'run-create')"
+result "unbound: heavy still reported" 1 "$(q .heavy.slots)"
 result "unbound: idle worktrees still listed" 3 "$(q '.idleWorktrees | length')"
 result "unbound: no unread, not truncated" '{"unreadOther":[],"terminalsTruncated":false}' "$(q '{unreadOther, terminalsTruncated}')"
 

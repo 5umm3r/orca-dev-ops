@@ -272,6 +272,27 @@ For Codex, the script works the same way with `--command "codex -a never -s work
 `git -C <worktree> rev-parse --absolute-git-dir` (the per-worktree
 `.git/worktrees/<name>`, not the common `.git`).
 
+Heavy commands (test suites, builds) share a few slots per repository on this
+machine through the plugin's `scripts/orca-heavy.sh run -- <command>` (see
+`heavy` in `docs/config.md`; the slot count follows each machine's cores and
+memory). For every child:
+
+- In the Dispatch prompt, name the repository's heavy commands (its
+  `heavy.commands`, or its verification suite when unset) and tell the child
+  to run them only as `sh "<absolute plugin root>/scripts/orca-heavy.sh" run
+  -- <command>`, with the resolved absolute path. The role guard denies an
+  unwrapped listed command in a Claude child; a Codex child follows the
+  prompt and the worktree rules only.
+- For Codex, before the launch run `mkdir -p "$(git rev-parse
+  --path-format=absolute --git-common-dir)/orca-heavy"` and add `--add-dir
+  <that directory>` after the worktree git dir's `--add-dir`: it is the only
+  extra writable directory this workflow adds, and without it the wrapper
+  runs without a slot.
+- A child waiting for a slot or for the load gets `orca-heavy: waiting ...`
+  in its command output; that is expected, not a stall.
+  `sh "<plugin root>/scripts/orca-heavy.sh" status` (and the progress
+  report) shows the slots, holders, and waiters.
+
 - First launch in a repository the agent has not trusted blocks at stage
   `agent_readiness`, and Codex may separately show an update prompt; never
   accept either on the coordinator's own initiative (see "Known

@@ -307,6 +307,61 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 メインチェックアウトにはこれらの上限をどれも適用せず、`orca worktree create` は
 数える前にブロックする。
 
+### `heavy`（任意。1.17.0 から）
+
+リポジトリの worktree が 1 台のマシンで同時に走らせる重いコマンド（テスト
+スイート、ビルド）の数を制限し、並行する子のせいで Mac が重くならないように
+する。`/orca-init` はこのセクションを書かない。どのキーも省略時は下の既定値
+になる。
+
+| キー | 型 | 既定値 | 動作 |
+| --- | --- | --- | --- |
+| `heavy.concurrency` | `"auto"` または 1 以上の整数 | `"auto"` | 枠の数（同時に走らせてよい重いコマンドの数）。`"auto"` は各マシンで `max(1, min(コア数 / coresPerSlot, メモリGB / memoryGBPerSlot))` を切り捨てで計算する |
+| `heavy.coresPerSlot` | 1 以上の整数 | `6` | `"auto"` のとき、1 枠あたりの CPU コア数（`hw.ncpu`） |
+| `heavy.memoryGBPerSlot` | 1 以上の整数 | `16` | `"auto"` のとき、1 枠あたりのメモリ GB |
+| `heavy.maxLoad` | 0 より大きい数 | `0.8` | 1 分平均の負荷がコア数 × `maxLoad` を超えている間は開始を待つ |
+| `heavy.minFreeMemory` | 0〜100 の整数 | `20` | 空きメモリ（`memory_pressure`）がこの % を下回っている間は開始を待つ。`0` で確認しない |
+| `heavy.maxWaitSeconds` | 0 以上の整数 | `1800` | 合計でこの秒数待ったら、枠なしで警告を出して実行する |
+| `heavy.priority` | `"normal"`、`"low"`、`"background"` | `"low"` | `low`: `nice -n 10`。`background`: macOS の `taskpolicy -b`（高効率コアのみ。かなり遅くなるが、マシンの反応は保たれる） |
+| `heavy.commands` | 空でない文字列の配列 | `[]` | このリポジトリで重いとみなすコマンド文字列。例: `"sh tests/run_all.sh"`、`"xcodebuild"` |
+
+既定値での例: 12 コア・32GB は 2 枠、8 コア・16GB は 1 枠、24 コア・128GB は
+4 枠。
+
+重いコマンドはプラグインのラッパーを通して実行する:
+
+```sh
+sh "<plugin root>/scripts/orca-heavy.sh" run -- sh tests/run_all.sh
+sh "<plugin root>/scripts/orca-heavy.sh" status
+```
+
+- 枠はディレクトリ `<git common dir>/orca-heavy/slot-<n>` で、リポジトリの
+  すべての worktree が共有する。持ち主のプロセスがもう無い枠は解放する。
+- 待っている間は理由を stderr に出し（`orca-heavy: waiting (40s): all 1
+  slot(s) held: cc-alpha (sh tests/run_all.sh)`、または負荷やメモリの値）、
+  `<git common dir>/orca-heavy/waiting/` に自分を記録する。
+- `status` は枠、マシンの値、使用中の枠、待っているコマンドを JSON で出す。
+  進捗報告にも含まれる。
+- `maxWaitSeconds` を過ぎたら開始する。負荷やメモリの確認だけで待っていた
+  なら空いた枠で、枠が埋まっていたなら枠なしで実行する。
+- 待ちがフォアグラウンドのコマンドの制限時間を超えることがあるので、子は
+  包んだコマンドをバックグラウンドで実行する（worktree rules）。
+- Codex の子: 枠のディレクトリにサンドボックスから書ける必要がある。
+  コーディネーターがディレクトリを作り、Codex の起動に `--add-dir <git
+  common dir>/orca-heavy` を加える（`skills/orca-dev-ops/SKILL.md` の
+  "Starting a child"）。無い場合、ラッパーは警告して枠なしで実行する。
+
+`heavy.commands` があると、ロールガードは Claude の子の Bash コマンドに
+それが含まれ、`orca-heavy.sh run` を通していなければ拒否し、拒否メッセージで
+ラッパーのパスを示す。Codex の子には Claude のフックが効かないので、
+worktree rules と Dispatch の指示に従う。コーディネーターは制限しない。
+
+マシンごとの上書き: `${XDG_CONFIG_HOME:-~/.config}/orca-dev-ops/heavy.json`
+に `commands` 以外の同じキーを平たいオブジェクトで書く
+（`{"concurrency": 1, "priority": "background"}`）。そのマシンでだけ
+リポジトリの値より優先する。不正なファイルは警告を出して無視する。
+リポジトリには含めない。
+
 ### `monitor`（非推奨。1.12.0 から無視される）
 
 1.12.0 より前のバージョンでは、`monitor.wakeOnStatus` と `monitor.timeoutMs` で
@@ -345,6 +400,8 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
 - `launch.top` が `model` と `effort` だけを持つオブジェクトでない、どちらかの値が
   空白を含まない空でない文字列でない、または `launch.escalate` が無い
   （`launch.top is only valid together with escalate`）。
+- `heavy` のキーが範囲外（`heavy` の項を参照）、または `heavy.commands` が空でない
+  文字列の配列でない。
 
 不正なファイルは全体を無視し、そこからは何も採用しない。最も厳しい動作である、
 上限付きのワークフローモード `worktree` と launch mode `ask` を含め、組み込みの
@@ -370,6 +427,14 @@ Write は引き続きブロックする。`0` にするとドキュメント以�
   ワークツリーモードと launch mode `ask`）を使い、設定の警告を出す。どちらかのキーを
   追加する前、または `--settings=add` を実行する前に、そのリポジトリで作業する
   すべてのデバイスのプラグインを更新しておく。
+
+## 1.17.0 への移行（`heavy`）
+
+1.17.0 で任意の `heavy` セクションが加わった。無いファイルの動作は変わらない。
+別のデバイスの古いプラグインは `heavy` を未知のキーとみなしてファイル全体を
+無視する（1.15.0 の説明と同じ）。追加する前に、すべてのデバイスでプラグインを
+更新し、`/orca-init` を再実行する（worktree rules と Codex 用ローダーの
+コピーが変わる）。
 
 ## 設定できないもの
 

@@ -106,6 +106,24 @@ git_c() {
     if (w == "git" && $(i + 1) == "-C" && i + 2 <= NF) print $(i + 3) "\t" $(i + 2)
   }'
 }
+# heavy_hit: the first heavy.commands entry (newline-separated in $HEAVY) that a command segment
+# starts with, compared word by word after the prefix words (env assignments, sudo, env, ...).
+# A segment that runs orca-heavy.sh run (directly or through sh/bash/zsh) is wrapped and skipped,
+# and an entry inside a quoted argument (a message body, a grep pattern) is not a segment start.
+heavy_hit() {
+  commands | awk "BEGIN { FS = sprintf(\"%c\", 31); ne = split(ENVIRON[\"HEAVY\"], E, \"\\n\") } { $skip_prefix"'
+    if (i > NF) next
+    j = i
+    if (w ~ /^(sh|bash|zsh|dash)$/) { v = $(i + 1); sub(/.*\//, "", v); if (v == "orca-heavy.sh") j = i + 1 }
+    v = $j; sub(/.*\//, "", v)
+    if (v == "orca-heavy.sh" && $(j + 1) == "run") next
+    line = $i; for (k = i + 1; k <= NF; k++) line = line " " $k
+    for (e = 1; e <= ne; e++) {
+      x = E[e]; gsub(/^[ \t]+|[ \t]+$/, "", x); gsub(/[ \t]+/, " ", x)
+      if (x != "" && (line == x || substr(line, 1, length(x) + 1) == x " ")) { print E[e]; exit }
+    }
+  }'
+}
 # True when physical path $1 is inside the own worktree; $2 = root also accepts the worktree root itself.
 in_own() { [ -n "$own" ] && orca_under "$1" "$own" && { [ "$2" = root ] || [ "$1" != "$own" ]; }; }
 
@@ -167,6 +185,15 @@ Bash)
   [ -n "$bad" ] && cdeny "A worker uses only orca orchestration ask, send, check, reply, dispatch-show, worker-show, run-current, task-list, inbox, and request-show; orca orchestration $bad belongs to the master session."
   printf '%s' "$cmd" | grep -Eq "(^|[;&|(\`[:space:]/'\"])orca-task-create\.sh['\"]?[[:space:]]+['\"]?-" \
     && cdeny "Blocked orca-task-create.sh (task-create is master-only). A worker talks to the coordinator with orca orchestration ask / send / check from this terminal."
+
+  # heavy.commands (.orca-dev-ops.json of the main checkout): a listed heavy command runs only
+  # through scripts/orca-heavy.sh run, which shares a few slots among all worktrees.
+  orca_config_load "$own"
+  heavy=$(HEAVY=$(orca_config '.heavy.commands // [] | .[]') heavy_hit)
+  if [ -n "$heavy" ]; then
+    wrapper="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/scripts/orca-heavy.sh"
+    cdeny "\"$heavy\" is a heavy command in this repository (heavy.commands in $ORCA_CONFIG_FILE). Run it through the shared slots so parallel worktrees do not overload the machine: sh \"$wrapper\" run -- <the same command>. It waits for a free slot and prints why while it waits."
+  fi
 
   # Destructive and external operations. String matching is best effort, not a sandbox:
   # it catches the usual spellings of these commands, not every way to run them.

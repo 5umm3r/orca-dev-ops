@@ -25,6 +25,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `scripts/orca-task-create.sh` | 呼び出したコーディネーターのターミナルとしてタスクを作成し、`.result.taskId`（古い Orca では `.result.task.id`）から読んだタスク ID だけを出力する。それ以外のレシートはエラーにする |
 | `scripts/orca-worker-start.sh` | タスク ID が Run に存在することを確認し、エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動する。起動直後の競合では一度だけ再試行し、ディスパッチ ID のない起動はエラーにする |
 | `scripts/orca-progress.sh` | 進捗報告用の読み取り専用スナップショット。Run の未完了タスクごとに画面末尾、worktree の差分量、`TASKS.md` のチェック数、未読メッセージ（peek）を出し、未完了タスクのない worktree も挙げる |
+| `scripts/orca-heavy.sh` | 重いコマンド（テストスイート、ビルド）を、リポジトリの worktree が共有する少数の枠の 1 つで実行する。枠の数はマシンのコア数とメモリから決まり、負荷やメモリの逼迫が高い間も開始を待つ |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
 | `scripts/orca-usage.sh` | 子 worktree のトークン使用量を Claude と Codex のローカル transcript から集計する |
 | `docs/config.ja.md` | リポジトリ設定ファイルのリファレンス |
@@ -172,6 +173,17 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
 今していること、差分量を表の 1 行で返す。% は画面と worktree（あれば
 `TASKS.md` のチェック数）からの推定で、計測値ではない。workflow mode
 `direct` では子タスクがないので報告対象もない。
+
+## 重いコマンド
+
+並行する子が同時にテストスイートやビルドを走らせると、Mac が重くなる。
+そうしたコマンドは `sh "<plugin root>/scripts/orca-heavy.sh" run --
+<command>` で包む。リポジトリの worktree 全体で同時に走るのは少数に限られ
+（既定ではマシンごとに計算し、12 コア・32GB なら 2）、負荷平均やメモリの
+逼迫が高い間も開始を待つ。`.orca-dev-ops.json` の `heavy.commands` に
+リポジトリの重いコマンドを書くと、ロールガードが Claude の子にラッパーを
+使わせる。数値はマシンごとに `~/.config/orca-dev-ops/heavy.json` で上書き
+できる。[docs/config.ja.md](docs/config.ja.md) の `heavy` を参照。
 
 ## テストの実行
 

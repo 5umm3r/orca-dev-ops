@@ -230,4 +230,13 @@ result "unknown command" 64 "$(usage set x)"
 result "too many arguments" 64 "$(usage show "$repo" extra)"
 result "not a repository" 65 "$(usage show "$tmp/scratch")"
 
+# --- heavy (opt-in, no defaults): taken as written
+printf '%s\n' '{"heavy":{"concurrency":2,"commands":["xcodebuild"]}}' > "$cfg"; show "$repo"
+result "heavy: exit 0" 0 "$rc"
+result "heavy: taken, no defaults added" '{"concurrency":2,"commands":["xcodebuild"]}' "$(printf '%s' "$out" | jq -c .heavy)"
+printf '%s\n' '{"heavy":{"concurrency":"x","priority":"high","commands":[""],"y":1}}' > "$cfg"; show "$repo"
+result "heavy invalid: exit 3" 3 "$rc"
+has "heavy invalid: every problem" "$err" 'unknown key heavy.y; heavy.concurrency must be "auto" or an integer >= 1; heavy.priority must be "normal", "low", or "background"; heavy.commands must be an array of non-empty strings'
+rm -f "$cfg"
+
 exit "$fail"

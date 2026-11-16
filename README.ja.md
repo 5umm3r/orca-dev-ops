@@ -11,6 +11,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | パス | 役割 |
 | --- | --- |
 | `skills/orca-dev-ops/SKILL.md` | マスターセッションの手順本体 |
+| `skills/progress-report/SKILL.md` | コーディネーターの進捗報告。「進捗報告」「progress report」で、実行中の子タスクごとに推定 % を 1 行ずつ表示する |
 | `skills/orca-init/SKILL.md` | 共通の初期化手順。Claude Code では `/orca-init`、Codex では `$orca-init` で呼び出す |
 | `hooks/orca-role-context.sh` | SessionStart。master / child のどちらかをセッションへ通知する |
 | `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止する |
@@ -23,6 +24,7 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `scripts/orca-run.sh` | `ensure`: コーディネーター自身の Orca ターミナルに Run を紐付け（紐付け済みならそれを使い、無ければ作成する）、その ID を出力する。以後、ワーカーが報告すると Orca がそのターミナルを起こす |
 | `scripts/orca-task-create.sh` | 呼び出したコーディネーターのターミナルとしてタスクを作成し、`.result.taskId`（古い Orca では `.result.task.id`）から読んだタスク ID だけを出力する。それ以外のレシートはエラーにする |
 | `scripts/orca-worker-start.sh` | タスク ID が Run に存在することを確認し、エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動する。起動直後の競合では一度だけ再試行し、ディスパッチ ID のない起動はエラーにする |
+| `scripts/orca-progress.sh` | 進捗報告用の読み取り専用スナップショット。Run の未完了タスクごとに画面末尾、worktree の差分量、`TASKS.md` のチェック数、未読メッセージ（peek）を出し、未完了タスクのない worktree も挙げる |
 | `scripts/orca-config.sh` | 有効なリポジトリ設定（`.orca-dev-ops.json`）を表示し、検証エラーを報告する |
 | `scripts/orca-usage.sh` | 子 worktree のトークン使用量を Claude と Codex のローカル transcript から集計する |
 | `docs/config.ja.md` | リポジトリ設定ファイルのリファレンス |
@@ -44,7 +46,7 @@ Claude Code の場合は [5umm3r/cccx-plugins](https://github.com/5umm3r/cccx-pl
 ```
 
 Codex ではプラグインマネージャーから `orca-dev-ops` をインストールする。
-パッケージの `.codex-plugin/plugin.json` が `skills/` 内の両スキルを公開する。
+パッケージの `.codex-plugin/plugin.json` が `skills/` 内のすべてのスキルを公開する。
 
 ## リポジトリへの適用
 
@@ -160,6 +162,16 @@ Orca とは: ワークツリーとエージェントのターミナルを管理�
 - 最初の子を起動する前に、Claude と Codex それぞれで各リポジトリを一度は
   信頼済みにしておく。リポジトリは `/tmp` や `$TMPDIR` 配下に置かない
   （Codex のサンドボックスからも書き込み可能なため）。
+
+## 進捗報告
+
+子が作業している間にコーディネーターのセッションで「進捗報告」（または
+「progress report」）と入力する。`progress-report` スキルが
+`scripts/orca-progress.sh` を実行し（読み取りのみ。ターミナルへの入力、
+`status` の要求、メッセージの既読化はしない）、子タスクごとに推定 %、
+今していること、差分量を表の 1 行で返す。% は画面と worktree（あれば
+`TASKS.md` のチェック数）からの推定で、計測値ではない。workflow mode
+`direct` では子タスクがないので報告対象もない。
 
 ## テストの実行
 

@@ -451,7 +451,9 @@ workflow's choices and what live tests showed.
 - Children send no routine `status` (not for progress, rule confirmation, or
   verification), so a Dispatch normally wakes the coordinator once, on
   `worker_done`, plus once per `ask`. Ask for a `status` only when you need
-  one mid-task. A child sometimes still sends a heartbeat, a `status`, or
+  one mid-task. When the user asks for progress ("進捗報告"), follow the
+  `progress-report` skill: it reads the screens and worktrees and sends
+  nothing to the children. A child sometimes still sends a heartbeat, a `status`, or
   repeats an earlier question; answer duplicates consistently (see "Known
   constraints").
 - The child's `worker_done` body is the preamble's three sentences, then a

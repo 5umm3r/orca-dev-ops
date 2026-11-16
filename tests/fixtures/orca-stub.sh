@@ -26,6 +26,12 @@
 #                       .result.terminal, .result.next.
 #   ORCA_STUB_TASKS     space-separated task IDs `orchestration task-list` reports (default: task_1).
 #   ORCA_STUB_TASK_LIST `orchestration task-list`: ok (default) or fail (ok false, exit 1).
+#   ORCA_STUB_TASK_LIST_FILE  when set, `orchestration task-list` prints this file instead (a
+#                       full receipt, e.g. with dispatched tasks and their assignees).
+#   ORCA_STUB_TERMINAL_LIST_FILE  when set, `terminal list` prints this file instead.
+#   ORCA_STUB_SCREEN_DIR  when set, `terminal read --terminal <h>` answers with the lines of
+#                       <dir>/<h> as .result.terminal.tail, or fails (ok false, exit 1) when
+#                       that file does not exist.
 #   ORCA_STUB_TASK_CREATE  `orchestration task-create`: ok (default; the concise view,
 #                       .result.taskId task_stub), legacy (an older Orca's receipt, or --full:
 #                       .result.task.id task_stub), uuid (a UUID `id` at the top, no task ID),
@@ -154,6 +160,7 @@ case "$1 $2" in
       | .result.truncated = ($trunc == "truncated")'
   ;;
 "terminal list")
+  [ -n "${ORCA_STUB_TERMINAL_LIST_FILE:-}" ] && { cat "$ORCA_STUB_TERMINAL_LIST_FILE"; exit 0; }
   state=$(list_state)
   jq -n --arg s "$state" '[$s | split(",") | to_entries[] | select(.value != "none") | {
       handle: "term_\(.key + 1)", worktreeId: "repo_stub::/w", worktreePath: "/w",
@@ -170,6 +177,17 @@ case "$1 $2" in
   esac
   ;;
 "terminal read")
+  if [ -n "${ORCA_STUB_SCREEN_DIR:-}" ]; then
+    h=
+    while [ $# -gt 0 ]; do [ "$1" = --terminal ] && h=$2; shift; done
+    if [ ! -f "$ORCA_STUB_SCREEN_DIR/$h" ]; then
+      echo '{"ok":false,"error":{"code":"not_found","message":"Terminal not found."}}'
+      exit 1
+    fi
+    jq -R . "$ORCA_STUB_SCREEN_DIR/$h" | jq -s --arg h "$h" '{ok: true, result: {terminal: {handle: $h,
+      status: "running", tail: ., source: "screen"}}}'
+    exit 0
+  fi
   if [ -n "${ORCA_STUB_TERMINALS:-}" ]; then
     h=
     while [ $# -gt 0 ]; do [ "$1" = --terminal ] && h=$2; shift; done
@@ -225,6 +243,7 @@ case "$1 $2" in
   esac
   ;;
 "orchestration task-list")
+  [ -n "${ORCA_STUB_TASK_LIST_FILE:-}" ] && { cat "$ORCA_STUB_TASK_LIST_FILE"; exit 0; }
   if [ "${ORCA_STUB_TASK_LIST:-ok}" = fail ]; then
     echo '{"ok":false,"error":{"code":"not_found","message":"Run not found."}}'
     exit 1

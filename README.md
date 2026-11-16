@@ -12,6 +12,7 @@ is delegated to child worktrees running either Claude or Codex.
 | Path | Role |
 | --- | --- |
 | `skills/orca-dev-ops/SKILL.md` | The master-session procedure itself |
+| `skills/progress-report/SKILL.md` | Coordinator progress report: on "進捗報告" or "progress report", one row per running child task with an estimated percentage |
 | `skills/orca-init/SKILL.md` | Shared repository initialization procedure; Claude Code's `/orca-init` and Codex's `$orca-init` skill |
 | `hooks/orca-role-context.sh` | SessionStart. Tells the session whether it is the master or a child |
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
@@ -24,6 +25,7 @@ is delegated to child worktrees running either Claude or Codex.
 | `scripts/orca-run.sh` | `ensure`: binds the coordinator's own Orca terminal to a Run (reuses the bound one or creates one) and prints its ID; Orca then wakes that terminal when a worker reports |
 | `scripts/orca-task-create.sh` | Creates a task as the calling coordinator terminal and prints the task ID only, read from `.result.taskId` (or `.result.task.id` on older Orca); any other receipt is an error |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the task ID is confirmed in the Run and the agent header is on screen, retrying once on the start-up race; a start without a dispatch ID is an error |
+| `scripts/orca-progress.sh` | Read-only progress snapshot for the progress report: each unfinished task of the Run with its screen tail, worktree diff size, `TASKS.md` checklist, and unread messages (peek), plus worktrees with no unfinished task |
 | `scripts/orca-config.sh` | Prints the effective repository settings (`.orca-dev-ops.json`) and reports validation errors |
 | `scripts/orca-usage.sh` | Sums a child worktree's token usage from the local Claude and Codex transcripts |
 | `docs/config.md` | Reference for the repository settings file |
@@ -48,7 +50,7 @@ In Claude Code, install from the
 ```
 
 In Codex, install the `orca-dev-ops` plugin using its plugin manager. The
-package's `.codex-plugin/plugin.json` exposes both skills under `skills/`.
+package's `.codex-plugin/plugin.json` exposes every skill under `skills/`.
 
 ## Applying to a repository
 
@@ -177,6 +179,17 @@ Codex hooks are kept.
 - Before starting the first child, trust each repository once in both Claude
   and Codex. Do not place repositories under `/tmp` or `$TMPDIR` (they are
   writable even from the Codex sandbox).
+
+## Progress report
+
+In the coordinator session, say "進捗報告" (or "progress report") while
+children work. The `progress-report` skill runs `scripts/orca-progress.sh`,
+which only reads (no terminal input, no `status` request, no message marked
+read), and answers with one table row per child task: an estimated
+percentage, what it is doing now, and its diff size. The percentage is an
+estimate from the screen and the worktree (and the `TASKS.md` checklist when
+there is one), not a measurement. In workflow mode `direct` there are no
+child tasks to report.
 
 ## Running the tests
 

@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_launch_ok","name":"Bash","input":{"command":"orca agent launch --agent claude --worktree name:cc-task --model opus --effort high --surface terminal --json","description":"Start the child agent"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_launch_ok","is_error":false,"content":"{\"ok\":true}"}]},"toolUseResult":{"stdout":"{\"ok\":true}","stderr":"","interrupted":false}}

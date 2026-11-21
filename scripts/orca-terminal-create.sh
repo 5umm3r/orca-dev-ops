@@ -10,6 +10,15 @@
 # match the ERE --expect (default: a Claude or Codex header).
 #   1. Lists the worktree's terminals. If an agent terminal exists already, creates nothing:
 #      prints every agent handle (one per line), a reason on stderr, exit 4.
+#   1b. Runs Orca's agent.launch.before plugin hooks on a `claude` or `codex` command, which
+#      `orca terminal create` skips (only `orca agent launch` and tab launches run them, and those
+#      cannot carry the required child flags): every running development plugin that lists the
+#      hook (`orca plugin list`), in turn, through `orca plugin dev hook`. The result is used only
+#      when the words of the original command are still words of it, in order (a
+#      `--settings <file>` may become inline JSON holding the file's entries); its env goes in
+#      front as `env NAME='value' ...`.
+#      Otherwise, and when a plugin fails or denies, the command runs as given, with a note on
+#      stderr. Installed (non-development) plugins with the hook cannot be run and are named.
 #   2. Runs `orca terminal create --worktree <selector> --title <text> --command <command> --json`.
 #      Success, or a failure that says "Timed out waiting for terminal handle", goes on; any
 #      other failure prints the receipt and exits 1.
@@ -18,7 +27,8 @@
 #      returned). A new plain shell is neither closed nor a failure: it is polled until it
 #      becomes an agent or the time is up.
 #   4. If no new terminal appeared at all and the worktree still has no agent terminal (an
-#      old shell may have turned into one), creates once more with the identical command and
+#      old shell may have turned into one), creates once more with the identical command (the
+#      hooks are not run again) and
 #      repeats step 3. Never a third create. After this second create the wait does not stop at
 #      the first agent: it polls until the deadline, stopping early only at two or more agent
 #      terminals, so a late start of the first create's agent is counted.
@@ -119,12 +129,79 @@ wait_new() {
 # agents_die <reason>: prints every agent handle and dies with 4.
 agents_die() { cat "$agents"; die 4 "$1"; }
 
+note() { printf 'orca-terminal-create: %s\n' "$*" >&2; }
+# words <text>: the shell words of <text>, one per line (quotes removed, nothing expanded).
+# Fails on an unbalanced quote.
+words() { printf '%s' "$1" | xargs -n1 printf '%s\n' 2>/dev/null; }
+# kept <original> <new>: the words of <original> are words of <new> in the same order (a hook may
+# add words between them), except the value of `--settings <file>` (or `--settings=<file>`): the
+# word after `--settings` in <new> is that file, or inline JSON holding every top-level entry of
+# the file (a hook may merge its own settings in). Otherwise prints what was lost and fails.
+kept() {
+  words "$1" | awk '/^--settings=/ { print "--settings"; sub(/^--settings=/, "") } { print }' > "$work/words" \
+    && words "$2" > "$work/hooked" \
+    || { printf 'could not be split into words'; return 1; }
+  i=1 n=$(wc -l < "$work/hooked" | tr -d ' ') prev=
+  while IFS= read -r w; do
+    if [ "$prev" = --settings ]; then
+      h=$(sed -n "${i}p" "$work/hooked"); i=$((i + 1))
+      [ "$h" = "$w" ] || printf '%s' "$h" | jq -e --slurpfile f "$w" '. as $h | type == "object"
+        and ($f[0] | type == "object") and ($f[0] | to_entries | all(.value == $h[.key]))' >/dev/null 2>&1 \
+        || { printf 'lost settings of %s (%s)' "$w" "$(jq -rn --slurpfile f "$w" --arg h "$h" '($h | fromjson? // {}) as $h
+               | [$f[0] | to_entries[] | select(.value != $h[.key]) | .key] | join(", ")' 2>/dev/null)"; return 1; }
+    else
+      while [ "$i" -le "$n" ] && [ "$(sed -n "${i}p" "$work/hooked")" != "$w" ]; do i=$((i + 1)); done
+      [ "$i" -le "$n" ] || { printf 'dropped %s' "$w"; return 1; }
+      i=$((i + 1))
+    fi
+    prev=$w
+  done < "$work/words"
+}
+# launch_hooks: runs Orca's agent.launch.before hooks that `orca terminal create` skips (it does
+# not tell Orca an agent starts) on $cmd, and sets $cmd to the result. Only running development
+# plugins can be run (`orca plugin dev hook`); each one gets the previous one's command and env,
+# and its env goes in front of the command as `env NAME='value' ...`. Any failure, or a result
+# that lost a word of the original command, leaves $cmd as given, with a note on stderr.
+launch_hooks() {
+  agent=$(words "$cmd" | head -n 1); agent=${agent##*/}
+  case "$agent" in claude | codex) ;; *) return ;; esac
+  plugins=$(orca plugin list --json 2>/dev/null) \
+    && printf '%s' "$plugins" | jq -e '.ok != false and (.result.plugins | type == "array")' >/dev/null 2>&1 \
+    || { note "launch hooks not applied: orca plugin list failed; launching the command as given"; return; }
+  running='.result.plugins[] | select(.status == "running" and ((.hooks // []) | index("agent.launch.before")))'
+  others=$(printf '%s' "$plugins" | jq -r "$running | select(.isDev != true) | .pluginKey" | tr '\n' ' ')
+  [ -z "$others" ] \
+    || note "launch hooks not applied for ${others% }: only development plugins can be run through orca plugin dev hook"
+  event=$(jq -nc --arg a "$agent" --arg c "$cmd" '{agent: $a, workspaceId: null, workspaceKind: "worktree", command: $c, env: {}}')
+  applied=
+  for key in $(printf '%s' "$plugins" | jq -r "$running | select(.isDev == true) | .pluginKey"); do
+    step=$(orca plugin dev hook "$key" agent.launch.before --data "$event" --json 2>/dev/null \
+      | jq -ec '.result.decision | select(.kind == "continue") | .event
+        | select((.command | type == "string") and (.env | type == "object"))' 2>/dev/null) \
+      || { note "launch hook of $key not applied: it failed or denied the launch"; continue; }
+    event=$step applied="$applied $key"
+  done
+  [ -n "$applied" ] || return
+  hooked=$(printf '%s' "$event" | jq -r '.command')
+  if ! lost=$(kept "$cmd" "$hooked"); then
+    note "launch hooks not applied: the result $lost; launching the command as given"
+    return
+  fi
+  prefix=$(printf '%s' "$event" | jq -r '.env | to_entries
+    | if all(.key | test("^[A-Za-z_][A-Za-z0-9_]*$")) and all(.value | type == "string")
+      then map("\(.key)=\(.value | @sh)") | join(" ") else error("bad env") end' 2>/dev/null) \
+    || { note "launch hooks not applied: the result has an invalid env; launching the command as given"; return; }
+  cmd=${prefix:+env $prefix }$hooked
+  note "launch hooks applied:$applied"
+}
+
 # 1. Existing agents.
 scan || die 1 "cannot list the terminals of $wt"
 if [ -s "$agents" ]; then
   agents_die "$wt already has an agent terminal; nothing created. Use it, or close the extras with orca terminal close --terminal <handle>"
 fi
 cp "$all" "$before"
+launch_hooks
 
 # 2. to 4. Create, wait, and at most one more create when nothing appeared.
 create

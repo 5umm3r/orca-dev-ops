@@ -18,10 +18,10 @@ is delegated to child worktrees running either Claude or Codex.
 | `hooks/orca-role-guard.sh` | PreToolUse. Blocks direct edits by the master and commits by children |
 | `hooks/orca-child-control.sh` | PostToolUse. Injects the control procedure after `orca worktree create` |
 | `hooks/orca-coordinator-inbox.sh` | UserPromptSubmit. On each user prompt in the coordinator, peeks at its Run's mailbox (without marking anything read) and names unread orchestration messages, so a held or lost wake is handled in that turn |
-| `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
+| `hooks/orca-launch-gate.sh` | PreToolUse. Blocks a child agent launch (`terminal create --command`, `orca-terminal-create.sh`, `worker-start --agent`, `orca agent launch`, `worktree create --agent`) until the user answered the Agent, Model, and Effort questions in this session (Claude and Codex) |
 | `hooks/orca-lib.sh` | Shared functions for role detection and the settings loader |
 | `scripts/orca-init.sh` | Script that installs the worktree rules and the Codex launch gate |
-| `scripts/orca-terminal-create.sh` | Creates the child's agent terminal, waits through the `terminal create` handle timeout instead of recreating, and reports duplicate agent terminals |
+| `scripts/orca-terminal-create.sh` | Creates the child's agent terminal, runs the running development plugins' `agent.launch.before` hooks on the command (which `terminal create` skips), waits through the `terminal create` handle timeout instead of recreating, and reports duplicate agent terminals |
 | `scripts/orca-run.sh` | `ensure`: binds the coordinator's own Orca terminal to a Run (reuses the bound one or creates one) and prints its ID; Orca then wakes that terminal when a worker reports |
 | `scripts/orca-task-create.sh` | Creates a task as the calling coordinator terminal and prints the task ID only, read from `.result.taskId` (or `.result.task.id` on older Orca); any other receipt is an error |
 | `scripts/orca-worker-start.sh` | Starts a dispatched worker on a child terminal once the task ID is confirmed in the Run and the agent header is on screen, retrying once on the start-up race; a start without a dispatch ID is an error |

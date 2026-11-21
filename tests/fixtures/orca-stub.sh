@@ -73,6 +73,23 @@
 #   ORCA_STUB_VERB_FAIL  an orchestration verb without its own fixture (send, reply, task-create,
 #                       ...) that fails: an ok false receipt on stdout, a line on stderr, exit 3.
 #                       Every other such verb answers {"ok": true, "result": {"verb": <verb>}}.
+#   ORCA_STUB_PLUGINS   `plugin list`: none (default; an empty list), panel (local.task-panel: a
+#                       running development plugin with agent.launch.before), idle (the same
+#                       plugin, idle), installed (andoshin11.milestone: running, not a
+#                       development plugin, with agent.launch.before), both (panel and
+#                       installed), two (panel and local.second: two such development plugins),
+#                       fail (ok false, exit 1).
+#   ORCA_STUB_HOOK      space-separated outcomes of successive `plugin dev hook` calls (default:
+#                       ok; the last repeats): ok (continue; the command gets
+#                       `--append-system-prompt 'X'` (claude) or `-c 'developer_instructions="X"'`
+#                       (codex) right after its first word, and the env gets
+#                       CLAUDE_CODE_ENABLE_TODO_TOOLS=1 for claude), merge (ok, and a
+#                       `--settings '<file>'` becomes the file's JSON plus a statusLine, inline),
+#                       lose (ok, and a `--settings '<file>'` becomes `--settings '{}'`), drop
+#                       (continue with only the first word left), shadow (drops ` -a never` and
+#                       adds text holding "never" and "-a", so only a whole-word check notices),
+#                       deny (kind deny), fail (ok
+#                       false, exit 1).
 fx=$ORCA_STUB_FIXTURES
 [ -n "${ORCA_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$ORCA_STUB_LOG"
 if [ -n "${ORCA_STUB_ENV_LOG:-}" ]; then
@@ -204,6 +221,54 @@ case "$1 $2" in
   [ "$after" != never ] && [ "$(calls 'terminal read')" -ge "$after" ] && line='[Opus 5.5] | cc-task'
   jq -n --arg l "$line" '{ok: true, result: {terminal: {handle: "term_stub", status: "running",
     tail: ["", $l, "❯"], source: "screen"}}}'
+  ;;
+"plugin list")
+  row() { jq -nc --arg k "$1" --arg s "$2" --argjson d "$3" '{pluginKey: $k, status: $s, isDev: $d,
+    hooks: ["agent.tool.after", "agent.launch.before"]}'; }
+  case "${ORCA_STUB_PLUGINS:-none}" in
+  none) rows= ;;
+  panel) rows=$(row local.task-panel running true) ;;
+  idle) rows=$(row local.task-panel idle true) ;;
+  installed) rows=$(row andoshin11.milestone running false) ;;
+  both) rows="$(row local.task-panel running true) $(row andoshin11.milestone running false)" ;;
+  two) rows="$(row local.task-panel running true) $(row local.second running true)" ;;
+  fail) echo '{"ok":false,"error":{"code":"runtime_error","message":"plugin list failed"}}'; exit 1 ;;
+  esac
+  printf '%s\n' $rows | jq -s '{ok: true, result: {plugins: map(select(. != null))}}'
+  ;;
+"plugin dev")
+  key=$3 data=
+  while [ $# -gt 0 ]; do [ "$1" = --data ] && data=$2; shift; done
+  outcome=$(nth "$(calls 'plugin dev hook')" ${ORCA_STUB_HOOK:-ok})
+  case "$outcome" in
+  fail) echo '{"ok":false,"error":{"code":"not_found","message":"plugin not loaded"}}'; exit 1 ;;
+  deny) jq -n --arg k "$key" --argjson e "$data" '{ok: true, result: {pluginKey: $k, event: "agent.launch.before",
+      decision: {kind: "deny", reason: "no"}}}'; exit 0 ;;
+  esac
+  printf '%s' "$data" | jq --arg k "$key" --arg o "$outcome" '
+    . as $e | ($e.command | capture("^(?<p>\\S+)(?<rest>.*)$")) as $c
+    | (if $e.agent == "claude" then " --append-system-prompt '\''X'\''" else " -c '\''developer_instructions=\"X\"'\''" end) as $add
+    | (if $o == "drop" then $c.p
+       elif $o == "shadow" then $c.p + " -c '\''developer_instructions=\"never -a --settings\"'\''" + ($c.rest | sub(" -a never"; ""))
+       else $c.p + $add + $c.rest end) as $cmd
+    | (if $o == "merge" then
+         ([$cmd | capture("--settings '\''(?<f>/[^'\'']*)'\''")][0].f) as $f
+         | if $f == null then $cmd else
+             $cmd | sub("--settings '\''[^'\'']*'\''"; "--settings '\''MERGED:" + $f + "'\''")
+           end
+       elif $o == "lose" then $cmd | sub("--settings '\''[^'\'']*'\''"; "--settings '\''{}'\''")
+       else $cmd end) as $cmd
+    | {ok: true, result: {pluginKey: $k, event: "agent.launch.before", decision: {kind: "continue",
+        event: ($e | .command = $cmd
+          | .env = (.env + (if $e.agent == "claude" then {CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"} else {} end)))}}}' \
+  | if [ "$outcome" = merge ]; then
+      # Replace the MERGED:<file> marker with the file's JSON plus a statusLine, as the real hook does.
+      out=$(cat); f=$(printf '%s' "$out" | jq -r '.result.decision.event.command' | sed -n "s/.*MERGED:\([^']*\)'.*/\1/p")
+      if [ -n "$f" ]; then
+        merged=$(jq -c '. + {statusLine: {type: "command", command: "relay"}}' "$f")
+        printf '%s' "$out" | jq --arg f "MERGED:$f" --arg m "$merged" '.result.decision.event.command |= (split($f) | join($m))'
+      else printf '%s\n' "$out"; fi
+    else cat; fi
   ;;
 "orchestration worker-start")
   n=$(calls 'orchestration worker-start')

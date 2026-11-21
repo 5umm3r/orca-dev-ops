@@ -10,7 +10,9 @@
 #     same --command <value> after any word of the command whose basename is
 #     orca-terminal-create.sh (run directly, by a shell with options, by `.`/`source`, or by
 #     another wrapper such as perl or gtimeout), or
-#   orca orchestration worker-start ... --agent ...   without --terminal.
+#   orca orchestration worker-start ... --agent ...   without --terminal, or
+#   orca agent launch ...   (always an agent), or
+#   orca worktree create ... --agent ...   (a new worktree with its agent).
 # Wrappers such as sudo or env are skipped together with their options (env -u/--unset VAR,
 # VAR=value assignments), and the command string
 # of `sh`/`bash`/`dash`/`zsh -c` is checked the same way, recursively.
@@ -123,10 +125,13 @@ shell_string='nested = ""
   }'
 # After skip_prefix: nested (see shell_string); or s, the index of the first word that may hold
 # --command, for `orca terminal create` or any word whose basename is orca-terminal-create.sh;
-# or ws, the index of the first option of `orca orchestration worker-start`.
-launch_start="$shell_string"'; s = 0; ws = 0
+# or ws, the index of the first option of `orca orchestration worker-start` (wk "worker"),
+# `orca agent launch` (wk "agent"), or `orca worktree create` (wk "worktree").
+launch_start="$shell_string"'; s = 0; ws = 0; wk = ""
   if (w == "orca" && $(i + 1) == "terminal" && $(i + 2) == "create") s = i + 3
-  if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") ws = i + 3
+  if (w == "orca" && $(i + 1) == "orchestration" && $(i + 2) == "worker-start") { ws = i + 3; wk = "worker" }
+  if (w == "orca" && $(i + 1) == "agent" && $(i + 2) == "launch") { ws = i + 3; wk = "agent" }
+  if (w == "orca" && $(i + 1) == "worktree" && $(i + 2) == "create") { ws = i + 3; wk = "worktree" }
   if (!s && !ws && nested == "") for (j = 1; j <= NF; j++) {
     b = $j; sub(/.*\//, "", b)
     if (b == "orca-terminal-create.sh") { s = j + 1; break }
@@ -181,7 +186,9 @@ is_launch() {
         if ($j == "--agent" || $j ~ /^--agent=/) agent = 1
         if ($j == "--terminal" || $j ~ /^--terminal=/) term = 1
       }
-      if (agent && !term) print "launch"
+      # agent launch always starts an agent; worktree create with --agent; worker-start with
+      # --agent and without --terminal.
+      if (wk == "agent" || (agent && (wk == "worktree" || !term))) print "launch"
     }
   }' | while IFS="$(printf '\t')" read -r kind value; do
     [ "$kind" = launch ] && { echo yes; break; }
@@ -196,7 +203,7 @@ is_launch() {
 
 # launch_params <command>: "<agent>\037<model>\037<effort>" for every launch that is_launch
 # detects in <command>; a value the launch does not set is empty. A --command value: see
-# value_agents; worker-start: --agent, --model, --effort. Both `--flag value` and `--flag=value`;
+# value_agents; worker-start, agent launch, worktree create: --agent, --model, --effort. Both `--flag value` and `--flag=value`;
 # the last occurrence wins.
 launch_params() {
   printf '%s\n' "$1" | join_lines | commands | awk "BEGIN { FS = sprintf(\"%c\", 31); OFS = FS } { $skip_prefix; $launch_start"'
@@ -219,7 +226,7 @@ launch_params() {
         else continue
         if (k == "agent") agent = v; else if (k == "model") model = v; else effort = v
       }
-      if (has && !term) print "L", agent, model, effort
+      if (wk == "agent" || (has && (wk == "worktree" || !term))) print "L", agent, model, effort
     }
   }' | while IFS= read -r _l; do
     case "$_l" in
@@ -303,7 +310,8 @@ topic='def trim: gsub("^\\s+|\\s+$"; "");
       else [(.title // .question // "") | tostring | trim | ascii_downcase
         | capture("^\\[(?<t>agent|model|effort)\\]")?][0].t // empty end;
   def nonempty: if type == "string" or type == "array" or type == "object" then length > 0 else . != null and . != false end;
-  def candidate: type == "string" and (test("worker-start") or (test("terminal") and test("create")));
+  def candidate: type == "string" and (test("worker-start") or (test("create") and test("terminal|worktree"))
+    or (test("agent") and test("launch")));
   def parse: if type == "string" then (try fromjson catch null) else . end;'
 format=$(jq -nrR 'first(inputs | fromjson? | select(type == "object")
   | if (.type == "user" or .type == "assistant") and (.message | type) == "object" then "claude"

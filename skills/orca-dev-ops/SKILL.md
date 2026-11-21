@@ -68,7 +68,7 @@ The `orca-dev-ops` plugin ships these hooks and they enforce this for Claude ses
   flags and AGENTS.md, not this hook.
 - `orca-child-control.sh` (PostToolUse) injects a short reminder after the commands that start a child (`orca worktree create`, `orca orchestration worker-start`).
 - `orca-coordinator-inbox.sh` (UserPromptSubmit, master only) peeks (`orca orchestration check --run <id> --peek`, which marks nothing read) at the Run bound to this terminal on every user prompt except Orca's own wake text; when unread messages exist it adds one line naming their count, types, and the Dispatch IDs of `worker_done`, `question`, and `escalation` messages, so a held or lost wake is handled in that turn. It never blocks a prompt and stays silent on any Orca error.
-- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`; `scripts/orca-terminal-create.sh --command` invocations, with the script as any word of the command (run directly, through a shell with options, `.`/`source`, or another wrapper), are gated the same way, and so are launches behind `env -u VAR`/`env VAR=...`, and launches inside `sh -c` strings). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch modes `semi-auto` and `auto` it reads no transcript for the default tier and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); with `launch.escalate` set, the `launch.agent` with the escalate model and effort is allowed as well, and with `launch.top` also set, the `launch.agent` with the top model and effort as a third tier: either in `auto` without reading the transcript, in `semi-auto` only after an answered `Model` question since the last successful launch (one question covers both tiers; the deny message lists every tier and its flags). Anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
+- `orca-launch-gate.sh` (PreToolUse, Bash) gates a child agent launch (`orca terminal create --command` running `claude` or `codex`, or `orca orchestration worker-start --agent` without `--terminal`, any `orca agent launch`, or `orca worktree create --agent`; `scripts/orca-terminal-create.sh --command` invocations, with the script as any word of the command (run directly, through a shell with options, `.`/`source`, or another wrapper), are gated the same way, and so are launches behind `env -u VAR`/`env VAR=...`, and launches inside `sh -c` strings). In launch mode `ask` (the default) it blocks the launch until this session's transcript holds answered questions with header `Agent`, `Model`, and `Effort` after the last successful launch; a failed launch does not reset that, so its retry needs no new question, and a missing or unrecognized transcript is denied. In launch modes `semi-auto` and `auto` it reads no transcript for the default tier and allows the launch only when its agent, model, and effort equal the configured `launch` values (Claude `--model`/`--effort`; Codex `-m`/`--model` and `-c model_reasoning_effort=`; worker-start `--agent`/`--model`/`--effort`); with `launch.escalate` set, the `launch.agent` with the escalate model and effort is allowed as well, and with `launch.top` also set, the `launch.agent` with the top model and effort as a third tier: either in `auto` without reading the transcript, in `semi-auto` only after an answered `Model` question since the last successful launch (one question covers both tiers; the deny message lists every tier and its flags). Anything else, including a value the command leaves out, is denied. It covers Codex coordinators too: `orca-init` installs it into the repository's `.codex/hooks.json` (see "Repository setup").
 Apart from the launch gate, Codex sessions are not covered by these hooks; the Codex sandbox (`-s workspace-write`, see "Starting a child") limits their writes to the worktree, and the repository's AGENTS.md rules and the task prompt must state the same limits.
 
 ## Repository setup
@@ -203,6 +203,21 @@ for these agents — is: `orca worktree create` -> the plugin's
 same way as `orca-base-ref.sh` in "Invariants") -> wait for `tui-idle` ->
 `orca-task-create.sh` + `orca-worker-start.sh --terminal <handle>
 --worktree <sel>`.
+
+Orca runs plugin `agent.launch.before` hooks (for example the Orca Tasks
+panel's checklist and next-step instructions) only for `orca agent launch` and
+tab launches, and Orca 1.4.265's `orca agent launch` and `worker-start --agent`
+still cannot carry the required flags (no per-launch arguments; Orca's
+full-access preset gives Codex `--dangerously-bypass-approvals-and-sandbox`,
+not `-a never -s workspace-write`). So `orca-terminal-create.sh` runs those
+hooks itself before the create: each running development plugin that lists
+the hook, through `orca plugin dev hook`, and launches the result (its env as
+an `env NAME='value'` prefix) only when every word of the given command is
+still a word of it, in the same order (`--settings <file>` may become inline
+JSON with the file's entries). Otherwise it launches the command as given and says why on stderr;
+a missing hook is not a launch failure. Installed plugins that are not
+development plugins cannot be run this way and are named on stderr. Pass the
+command exactly as below; never add the hook's flags or env by hand.
 
 `orca terminal create` into a worktree created moments earlier can fail with
 `Timed out waiting for terminal handle after creation` although the agent

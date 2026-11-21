@@ -46,6 +46,10 @@ check "git status passes" allow "$(input 'git status' '')"
 check "orca terminal list passes" allow "$(input 'orca terminal list --json' '')"
 check "terminal create without an agent passes" allow "$(input 'orca terminal create --worktree name:x --command "npm test"' '')"
 check "terminal create without --command passes" allow "$(input 'orca terminal create --worktree name:x' '')"
+check "worktree create without --agent passes" allow "$(input 'orca worktree create --name cc-x --base-branch main --json' '')"
+check "worktree create with agent: only in --comment passes" allow "$(input 'orca worktree create --name cc-x --comment "agent:claude model:m effort:e" --json' '')"
+check "orca agent list passes" allow "$(input 'orca agent list --json' '')"
+check "orca agent read passes" allow "$(input 'orca agent read --session s --json' '')"
 check "worker-start --terminal passes" allow "$(input 'orca orchestration worker-start --run r --task t --agent claude --terminal term_1' '')"
 check "worker-start --terminal= passes" allow "$(input 'orca orchestration worker-start --agent=codex --terminal=term_1' '')"
 check "orca-worker-start.sh passes" allow "$(input 'sh "$ROOT/scripts/orca-worker-start.sh" --run r --task t --terminal term_1 --worktree name:x' '')"
@@ -79,6 +83,8 @@ check "claude: declined question denies" deny "$(input "$create" "$(transcript d
 check "claude: two answered then a separate Effort question allows" allow \
   "$(input "$create" "$(transcript split claude-prompt claude-ask-two claude-ask-all)")"
 check "claude: answers before a successful launch deny" deny "$(input "$create" "$(transcript stale claude-prompt claude-ask-all claude-launch-ok)")"
+check "claude: answers before a successful agent launch deny" deny "$(input "$create" "$(transcript stale-al claude-prompt claude-ask-all claude-agent-launch-ok)")"
+check "claude: answers before a successful worktree create --agent deny" deny "$(input "$create" "$(transcript stale-wc claude-prompt claude-ask-all claude-worktree-agent-ok)")"
 check "claude: answers after a successful launch allow" allow "$(input "$create" "$(transcript fresh claude-prompt claude-launch-ok claude-ask-all)")"
 check "claude: answers then a failed launch allow a retry" allow "$(input "$create" "$(transcript retry claude-prompt claude-ask-all claude-launch-failed)")"
 check "claude: the current call in the transcript is excluded" allow \
@@ -95,6 +101,14 @@ for c in \
   "$(printf 'orca terminal \\\n  create --worktree name:x \\\n  --command "claude"')" \
   'orca orchestration worker-start --run r --task t --agent claude' \
   'orca orchestration worker-start --agent=codex --worktree name:x' \
+  'orca agent launch --agent claude --worktree name:cc-x --json' \
+  'orca agent launch --agent=codex --model sol --surface terminal' \
+  'orca agent launch --worktree name:cc-x --json' \
+  'env -u ORCA_TAB_ID orca agent launch --agent claude' \
+  "bash -c 'orca agent launch --agent claude --worktree name:x'" \
+  'orca worktree create --name cc-x --agent claude --model opus --effort high --json' \
+  'orca worktree create --name cx-x --agent=codex --json' \
+  'cd "$R" && orca worktree create --name x --agent claude | jq .' \
   "sh -x scripts/orca-terminal-create.sh --command 'claude --model opus'" \
   "bash -- scripts/orca-terminal-create.sh --command 'codex -m sol'" \
   "bash -o errexit scripts/orca-terminal-create.sh --command 'claude --model opus'" \
@@ -161,6 +175,17 @@ check "auto: matching launch allows without a transcript" allow "$(input "$ok" '
 check "auto: --flag=value spelling allows" allow "$(input 'orca terminal create --command "claude --model=claude-opus-5-5 --effort=high"' '')"
 check "auto: matching worker-start allows" allow "$(input 'orca orchestration worker-start --task t --agent claude --model claude-opus-5-5 --effort high' '')"
 check "auto: worker-start with = allows" allow "$(input 'orca orchestration worker-start --agent=claude --model=claude-opus-5-5 --effort=high' '')"
+check "auto: matching agent launch allows" allow "$(input 'orca agent launch --agent claude --worktree name:cc-x --model claude-opus-5-5 --effort high --surface terminal --json' '')"
+check "auto: agent launch with = allows" allow "$(input 'orca agent launch --agent=claude --model=claude-opus-5-5 --effort=high' '')"
+check "auto: agent launch other model denies" deny "$(input 'orca agent launch --agent claude --model claude-sonnet-5 --effort high' "$all")"
+check "auto: agent launch without model denies" deny "$(input 'orca agent launch --agent claude --worktree name:cc-x' "$all")"
+check "auto: agent launch other agent denies" deny "$(input 'orca agent launch --agent codex --model claude-opus-5-5 --effort high' "$all")"
+has "auto: agent launch reason names the launch's values" \
+  "$(reason "$(input 'orca agent launch --agent claude --model claude-sonnet-5 --effort high' '')")" "agent claude, model claude-sonnet-5, effort high"
+check "auto: matching worktree create --agent allows" allow "$(input 'orca worktree create --name cc-x --base-branch main --agent claude --model claude-opus-5-5 --effort high --json' '')"
+check "auto: worktree create --agent other effort denies" deny "$(input 'orca worktree create --name cc-x --agent claude --model claude-opus-5-5 --effort max --json' "$all")"
+check "auto: worktree create --agent without effort denies" deny "$(input 'orca worktree create --name cc-x --agent claude --model claude-opus-5-5' "$all")"
+check "auto: worktree create without --agent passes" allow "$(input 'orca worktree create --name cc-x --base-branch main --json' '')"
 check "auto: other model denies" deny "$(input 'orca terminal create --command "claude --model claude-sonnet-5 --effort high"' "$all")"
 check "auto: other effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5 --effort max"' "$all")"
 check "auto: missing effort denies" deny "$(input 'orca terminal create --command "claude --model claude-opus-5-5"' "$all")"

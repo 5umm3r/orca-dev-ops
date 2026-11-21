@@ -17,10 +17,10 @@ Codex の子ワークツリーに委ねる分業を前提とする。
 | `hooks/orca-role-guard.sh` | PreToolUse。master の直接編集と child のコミットを禁止する |
 | `hooks/orca-child-control.sh` | PostToolUse。`orca worktree create` 後に制御手順を注入する |
 | `hooks/orca-coordinator-inbox.sh` | UserPromptSubmit。コーディネーターでユーザーが入力するたびに Run のメールボックスを既読にせず確認し、未読のオーケストレーションメッセージがあれば知らせる。起床が止まったり届かなかったりしても、そのターンで処理できる |
-| `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動をブロックする（Claude と Codex） |
+| `hooks/orca-launch-gate.sh` | PreToolUse。このセッションでユーザーが Agent・Model・Effort の質問に回答するまで、子エージェントの起動（`terminal create --command`、`orca-terminal-create.sh`、`worker-start --agent`、`orca agent launch`、`worktree create --agent`）をブロックする（Claude と Codex） |
 | `hooks/orca-lib.sh` | ロール判定と設定読み込みの共通関数 |
 | `scripts/orca-init.sh` | worktree rules と Codex 用の起動ゲートを設置するスクリプト |
-| `scripts/orca-terminal-create.sh` | 子のエージェントターミナルを作成し、`terminal create` のハンドル待ちタイムアウトでは再作成せずに待ち、重複したエージェントターミナルを検出する |
+| `scripts/orca-terminal-create.sh` | 子のエージェントターミナルを作成し、起動コマンドに稼働中の開発プラグインの `agent.launch.before` hook（`terminal create` では呼ばれない）を適用し、`terminal create` のハンドル待ちタイムアウトでは再作成せずに待ち、重複したエージェントターミナルを検出する |
 | `scripts/orca-run.sh` | `ensure`: コーディネーター自身の Orca ターミナルに Run を紐付け（紐付け済みならそれを使い、無ければ作成する）、その ID を出力する。以後、ワーカーが報告すると Orca がそのターミナルを起こす |
 | `scripts/orca-task-create.sh` | 呼び出したコーディネーターのターミナルとしてタスクを作成し、`.result.taskId`（古い Orca では `.result.task.id`）から読んだタスク ID だけを出力する。それ以外のレシートはエラーにする |
 | `scripts/orca-worker-start.sh` | タスク ID が Run に存在することを確認し、エージェントのヘッダーが画面に出てから子ターミナルでディスパッチワーカーを起動する。起動直後の競合では一度だけ再試行し、ディスパッチ ID のない起動はエラーにする |
